@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Haunted House Admin</title>
+    <title>Last Human Admin</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -25,7 +25,7 @@
             gap: 20px;
         }
         
-        .control-panel, .status-panel, .user-panel {
+        .control-panel, .status-panel, .user-panel, .audio-timer-panel {
             background-color: #fff;
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
@@ -46,6 +46,11 @@
         .user-panel {
             flex: 2;
             min-width: 400px;
+        }
+        
+        .audio-timer-panel {
+            flex: 1;
+            min-width: 300px;
         }
         
         .control-section {
@@ -180,10 +185,53 @@
         .user-summary p {
             margin: 5px 0;
         }
+        
+        /* Audio timer styles */
+        .timer-container {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        
+        .timer-label {
+            font-weight: bold;
+            margin-bottom: 5px;
+            color: #444;
+        }
+        
+        .timer-time {
+            font-family: monospace;
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+        
+        .timer-progress {
+            height: 10px;
+            background-color: #ddd;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        
+        .timer-bar {
+            height: 100%;
+            background-color: #4CAF50;
+            width: 0%;
+            transition: width 1s linear;
+        }
+        
+        #mainTrackTimer .timer-bar {
+            background-color: #2196F3;
+        }
+        
+        #endingTrackTimer .timer-bar {
+            background-color: #9c27b0;
+        }
     </style>
 </head>
 <body>
-    <h1>Haunted House Admin Panel</h1>
+    <h1>Last Human Admin Panel</h1>
     
     <div class="admin-container">
         <div class="control-panel">
@@ -197,6 +245,27 @@
                 <button id="playBtn">Play All Audio</button>
                 <button id="pauseBtn">Pause All Audio</button>
                 <button id="endingTrackBtn">Play Ending Track</button>
+            </div>
+            
+            <div class="audio-timer-panel">
+                <h2>Audio Playback</h2>
+                <div id="audioTimerContainer">
+                    <div id="mainTrackTimer" class="timer-container">
+                        <div class="timer-label">Main Tracks:</div>
+                        <div class="timer-time">00:00 / 00:00</div>
+                        <div class="timer-progress">
+                            <div class="timer-bar"></div>
+                        </div>
+                    </div>
+                    
+                    <div id="endingTrackTimer" class="timer-container">
+                        <div class="timer-label">Ending Track:</div>
+                        <div class="timer-time">00:00 / 00:00</div>
+                        <div class="timer-progress">
+                            <div class="timer-bar"></div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
         

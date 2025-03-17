@@ -15,8 +15,8 @@ io = require("socket.io")(server, {
 });
 const cookieParser = require("cookie-parser");
 
-// Get port from command line arguments or use default 3000
-const port = process.argv[2] ? parseInt(process.argv[2]) : 3000;
+// Get port from command line or use default
+const port = process.argv[2] || 3000;
 
 let triggeredEnd = false;
 let audioPlaying = false;
@@ -92,6 +92,29 @@ function logEvent(userID, timestamp, event) {
   console.log(`User ${userID} at ${timestamp}: ${JSON.stringify(event)}`);
 }
 
+// Send playback status to admins
+function updateAdminsWithPlaybackStatus() {
+  let status = 'paused';
+  let elapsedTime = 0;
+  
+  if (audioPlaying && startTime) {
+    if (triggeredEnd) {
+      status = 'playingEnding';
+    } else {
+      status = 'playing';
+    }
+    
+    const currentTime = Date.now();
+    elapsedTime = (currentTime - startTime) / 1000; // Convert to seconds
+  }
+  
+  io.to("admin").emit("playbackStatus", {
+    status: status,
+    elapsedTime: elapsedTime,
+    isEndingTrack: triggeredEnd
+  });
+}
+
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(`${__dirname}/public`));
 
@@ -152,6 +175,8 @@ io.on("connection", function (socket) {
     console.log("Admin connected");
     // Send current user list to the admin
     socket.emit("userList", connectedUsers);
+    // Send current playback status to the admin
+    updateAdminsWithPlaybackStatus();
   } else {
     socket.join("app");
     
@@ -232,6 +257,8 @@ io.on("connection", function (socket) {
     latestCommand = { type: 'restart' };
     io.in("app").emit("restart");
     io.in("app").emit("clearTrackCookie");
+    // Update admin playback status
+    updateAdminsWithPlaybackStatus();
   });
   
   // Handle play audio event from admin
@@ -241,6 +268,8 @@ io.on("connection", function (socket) {
     startTime = Date.now();
     latestCommand = { type: 'playAudio', data: { startAt: 0 } };
     io.in("app").emit("playAudio", { startAt: 0 });
+    // Update admin playback status
+    updateAdminsWithPlaybackStatus();
   });
   
   // Handle pause audio event from admin
@@ -250,15 +279,20 @@ io.on("connection", function (socket) {
     startTime = null;
     latestCommand = { type: 'pauseAudio' };
     io.in("app").emit("pauseAudio");
+    // Update admin playback status
+    updateAdminsWithPlaybackStatus();
   });
   
   // Handle play ending track event from admin
   socket.on("playEndingTrack", function (msg) {
     console.log("ending track playback triggered by admin");
     startTime = Date.now();
+    audioPlaying = true;
     latestCommand = { type: 'playEndingTrack', data: { startAt: 0 } };
     io.in("app").emit("playEndingTrack", { startAt: 0 });
     triggeredEnd = true;
+    // Update admin playback status
+    updateAdminsWithPlaybackStatus();
   });
 
   socket.on("disconnect", function () {
@@ -278,6 +312,9 @@ io.on("connection", function (socket) {
   });
 });
 
-server.listen(port, function () {
+// Set up a timer to periodically update admin playback status
+setInterval(updateAdminsWithPlaybackStatus, 5000);
+
+server.listen(parseInt(port), function () {
   console.log(`Haunted House server listening on port ${port}`);
 });

@@ -12,9 +12,114 @@ const restartBtn = document.getElementById('restartBtn');
 const endingTrackBtn = document.getElementById('endingTrackBtn');
 const statusInfo = document.getElementById('statusInfo');
 const userListContainer = document.getElementById('userListContainer');
+const audioTimerContainer = document.getElementById('audioTimerContainer');
+const mainTrackTimer = document.getElementById('mainTrackTimer');
+const endingTrackTimer = document.getElementById('endingTrackTimer');
 
 // Audio state
 let isPlaying = false;
+let isEndingPlaying = false;
+let playbackStartTime = null;
+let endingStartTime = null;
+let timerInterval = null;
+
+// Audio durations (in seconds) - these will be updated when audio metadata is loaded
+let mainTrackDurations = {
+    track1: 0,
+    track2: 0
+};
+let endingTrackDuration = 0;
+
+// Create hidden audio elements to get durations
+const hiddenAudio1 = new Audio('/audio/track1.mp3');
+const hiddenAudio2 = new Audio('/audio/track2.mp3');
+const hiddenEndingAudio = new Audio('/audio/end.mp3');
+
+// Load audio metadata to get durations
+hiddenAudio1.addEventListener('loadedmetadata', () => {
+    mainTrackDurations.track1 = hiddenAudio1.duration;
+    updateTimerDisplay();
+    log('Track 1 duration loaded: ' + formatTime(mainTrackDurations.track1));
+});
+
+hiddenAudio2.addEventListener('loadedmetadata', () => {
+    mainTrackDurations.track2 = hiddenAudio2.duration;
+    updateTimerDisplay();
+    log('Track 2 duration loaded: ' + formatTime(mainTrackDurations.track2));
+});
+
+hiddenEndingAudio.addEventListener('loadedmetadata', () => {
+    endingTrackDuration = hiddenEndingAudio.duration;
+    updateTimerDisplay();
+    log('Ending track duration loaded: ' + formatTime(endingTrackDuration));
+});
+
+// Format time in seconds to MM:SS format
+function formatTime(seconds) {
+    if (isNaN(seconds) || seconds === Infinity) return '00:00';
+    
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.floor(seconds % 60);
+    
+    return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
+}
+
+// Update timer display
+function updateTimerDisplay() {
+    const currentTime = Date.now();
+    let elapsedMainTime = 0;
+    let elapsedEndingTime = 0;
+    
+    if (isPlaying && playbackStartTime) {
+        elapsedMainTime = (currentTime - playbackStartTime) / 1000;
+    }
+    
+    if (isEndingPlaying && endingStartTime) {
+        elapsedEndingTime = (currentTime - endingStartTime) / 1000;
+    }
+    
+    // Calculate average duration for main tracks
+    const avgMainDuration = (mainTrackDurations.track1 + mainTrackDurations.track2) / 2;
+    
+    // Update main track timer
+    mainTrackTimer.innerHTML = `
+        <div class="timer-label">Main Tracks:</div>
+        <div class="timer-time">${formatTime(elapsedMainTime)} / ${formatTime(avgMainDuration)}</div>
+        <div class="timer-progress">
+            <div class="timer-bar" style="width: ${Math.min(100, (elapsedMainTime / avgMainDuration) * 100)}%"></div>
+        </div>
+    `;
+    
+    // Update ending track timer
+    endingTrackTimer.innerHTML = `
+        <div class="timer-label">Ending Track:</div>
+        <div class="timer-time">${formatTime(elapsedEndingTime)} / ${formatTime(endingTrackDuration)}</div>
+        <div class="timer-progress">
+            <div class="timer-bar" style="width: ${Math.min(100, (elapsedEndingTime / endingTrackDuration) * 100)}%"></div>
+        </div>
+    `;
+    
+    // Update timer container visibility
+    if (isPlaying || isEndingPlaying) {
+        audioTimerContainer.style.display = 'block';
+    } else {
+        audioTimerContainer.style.display = 'block'; // Keep visible but show 00:00
+    }
+}
+
+// Start timer update interval
+function startTimerInterval() {
+    if (timerInterval) clearInterval(timerInterval);
+    timerInterval = setInterval(updateTimerDisplay, 1000);
+}
+
+// Stop timer update interval
+function stopTimerInterval() {
+    if (timerInterval) {
+        clearInterval(timerInterval);
+        timerInterval = null;
+    }
+}
 
 // Log function
 function log(message) {
@@ -112,33 +217,52 @@ function updateUserList(users) {
 playBtn.addEventListener('click', () => {
     socket.emit('playAudio');
     isPlaying = true;
+    isEndingPlaying = false;
+    playbackStartTime = Date.now();
+    endingStartTime = null;
+    startTimerInterval();
     log('Sent play command to all clients');
+    updateTimerDisplay();
 });
 
 pauseBtn.addEventListener('click', () => {
     socket.emit('pauseAudio');
     isPlaying = false;
-    log('Sent stop command to all clients');
+    isEndingPlaying = false;
+    log('Sent pause command to all clients');
+    updateTimerDisplay();
 });
 
 restartBtn.addEventListener('click', () => {
     socket.emit('restart');
     isPlaying = false;
+    isEndingPlaying = false;
+    playbackStartTime = null;
+    endingStartTime = null;
     log('Restarted experience for all clients');
+    updateTimerDisplay();
 });
 
 endingTrackBtn.addEventListener('click', () => {
     socket.emit('playEndingTrack');
+    isPlaying = false;
+    isEndingPlaying = true;
+    playbackStartTime = null;
+    endingStartTime = Date.now();
+    startTimerInterval();
     log('Playing ending track for all clients');
+    updateTimerDisplay();
 });
 
 // Socket events
 socket.on('connect', () => {
     log('Connected to server');
+    startTimerInterval(); // Start the timer interval when connected
 });
 
 socket.on('disconnect', () => {
     log('Disconnected from server');
+    stopTimerInterval(); // Stop the timer interval when disconnected
 });
 
 // Handle user list updates
@@ -147,5 +271,27 @@ socket.on('userList', (users) => {
     log(`User list updated: ${Object.keys(users).length} users connected`);
 });
 
+// Handle playback status updates from server
+socket.on('playbackStatus', (data) => {
+    if (data.status === 'playing') {
+        isPlaying = true;
+        isEndingPlaying = false;
+        playbackStartTime = Date.now() - (data.elapsedTime * 1000);
+        endingStartTime = null;
+    } else if (data.status === 'playingEnding') {
+        isPlaying = false;
+        isEndingPlaying = true;
+        playbackStartTime = null;
+        endingStartTime = Date.now() - (data.elapsedTime * 1000);
+    } else if (data.status === 'paused') {
+        isPlaying = false;
+        isEndingPlaying = false;
+    }
+    updateTimerDisplay();
+});
+
 // Initial log
-log('Admin panel initialized'); 
+log('Admin panel initialized');
+
+// Initial timer display update
+updateTimerDisplay(); 
