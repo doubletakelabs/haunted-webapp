@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Haunted House Admin</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        
+        h1 {
+            color: #222;
+            border-bottom: 2px solid #ddd;
+            padding-bottom: 10px;
+        }
+        
+        .admin-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .control-panel, .status-panel, .user-panel {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .control-panel {
+            flex: 1;
+            min-width: 300px;
+        }
+        
+        .status-panel {
+            flex: 2;
+            min-width: 400px;
+        }
+        
+        .user-panel {
+            flex: 2;
+            min-width: 400px;
+        }
+        
+        .control-section {
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .control-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        
+        h2 {
+            margin-top: 0;
+            color: #444;
+            font-size: 1.2rem;
+        }
+        
+        button {
+            background-color: #4a4a4a;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: background-color 0.3s;
+        }
+        
+        button:hover {
+            background-color: #333;
+        }
+        
+        #playBtn {
+            background-color: #4CAF50;
+        }
+        
+        #playBtn:hover {
+            background-color: #3e8e41;
+        }
+        
+        #pauseBtn {
+            background-color: #f44336;
+        }
+        
+        #pauseBtn:hover {
+            background-color: #d32f2f;
+        }
+        
+        #restartBtn {
+            background-color: #2196F3;
+        }
+        
+        #restartBtn:hover {
+            background-color: #0b7dda;
+        }
+        
+        #endingTrackBtn {
+            background-color: #9c27b0;
+        }
+        
+        #endingTrackBtn:hover {
+            background-color: #7b1fa2;
+        }
+        
+        #statusInfo {
+            height: 300px;
+            overflow-y: auto;
+            background-color: #f9f9f9;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            font-family: monospace;
+            white-space: pre-wrap;
+            font-size: 12px;
+        }
+        
+        /* User list styles */
+        .user-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        
+        .user-table th, .user-table td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .user-table th {
+            background-color: #f2f2f2;
+            font-weight: bold;
+        }
+        
+        .user-table tr:hover {
+            background-color: #f5f5f5;
+        }
+        
+        .track-1 {
+            color: #2196F3;
+            font-weight: bold;
+        }
+        
+        .track-2 {
+            color: #9c27b0;
+            font-weight: bold;
+        }
+        
+        .status-connected {
+            color: #4CAF50;
+        }
+        
+        .empty-message {
+            text-align: center;
+            color: #999;
+            padding: 20px;
+        }
+        
+        .user-summary {
+            background-color: #f9f9f9;
+            padding: 10px 15px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+            margin-top: 10px;
+        }
+        
+        .user-summary p {
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>Haunted House Admin Panel</h1>
+    
+    <div class="admin-container">
+        <div class="control-panel">
+            <div class="control-section">
+                <h2>Experience Control</h2>
+                <button id="restartBtn">Restart Experience</button>
+            </div>
+            
+            <div class="control-section">
+                <h2>Audio Control</h2>
+                <button id="playBtn">Play All Audio</button>
+                <button id="pauseBtn">Pause All Audio</button>
+                <button id="endingTrackBtn">Play Ending Track</button>
+            </div>
+        </div>
+        
+        <div class="status-panel">
+            <h2>Status Information</h2>
+            <div id="statusInfo"></div>
+        </div>
+        
+        <div class="user-panel">
+            <h2>Connected Users</h2>
+            <div id="userListContainer">
+                <!-- User list will be populated here -->
+            </div>
+        </div>
+    </div>
+    
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/admin.js"></script>
+</body>
+</html> 
