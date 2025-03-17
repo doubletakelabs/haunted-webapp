@@ -1,14 +1,15 @@
-# Haunted House Webapp Prototype
+# Haunted House Web Application
 
-A simple web application for a haunted house experience with synchronized audio playback.
+A web application for a haunted house experience that plays synchronized audio tracks for visitors.
 
 ## Features
 
-- Alternating track assignment for visitors (track1.mp3 or track2.mp3)
-- Admin panel to control audio playback for all connected clients
+- Alternating track assignments for visitors (Track 1 or Track 2)
+- Persistent track assignment using cookies
+- Loading progress bar for audio files
+- Admin panel for controlling the experience
+- Real-time user tracking in the admin panel
 - Synchronized audio playback across all clients
-- Late-joining clients will sync with the current playback time
-- Special ending track that can be triggered for all clients simultaneously
 
 ## Setup
 
@@ -17,34 +18,55 @@ A simple web application for a haunted house experience with synchronized audio 
 npm install
 ```
 
-2. Add your audio files:
-   - Place your audio files in the `public/audio` directory
-   - Required files:
-     - `track1.mp3` - First alternating track
-     - `track2.mp3` - Second alternating track
-     - `end.mp3` - Ending track that plays for all clients
+2. Make sure you have the following audio files in the `public/audio` directory:
+   - `track1.mp3` - First audio track
+   - `track2.mp3` - Second audio track
+   - `end.mp3` - Ending audio track
 
-3. Start the server:
+## Running the Application
+
+### Default Port (3000)
+
 ```
 node app.js
 ```
 
-4. Access the application:
-   - Main route: http://localhost:3000/
-   - Admin panel: http://localhost:3000/admin
+### Custom Port
 
-## How It Works
+You can specify a custom port using the `--port` flag:
 
-- Each visitor is automatically assigned either track1.mp3 or track2.mp3 in alternating order
-- The admin panel can control playback for all connected clients
-- When a new client connects, they will automatically sync with the current playback time
-- The admin can trigger the ending track (end.mp3) to play for all clients simultaneously
-- When the ending track plays, it stops any currently playing track
+```
+node app.js --port 3003
+```
 
-## Technical Details
+## Accessing the Application
 
-- Built with Express.js and Socket.io
-- Uses cookies to track user sessions and audio track assignment
-- Real-time communication between clients and server
-- Responsive design that works on mobile and desktop
-- JavaScript code is organized in separate files for better maintainability 
+- Client page: `http://localhost:<port>/`
+- Admin panel: `http://localhost:<port>/admin`
+
+## Admin Controls
+
+The admin panel provides the following controls:
+
+- **Restart Experience**: Resets the experience for all clients
+- **Play All Audio**: Starts audio playback for all clients
+- **Pause All Audio**: Pauses audio playback for all clients
+- **Play Ending Track**: Plays the ending track for all clients
+
+The admin panel also displays a list of connected users with their assigned tracks and connection times.
+
+## Client Experience
+
+1. When a client visits the page, they are assigned to either Track 1 or Track 2
+2. The audio files are preloaded with a progress bar
+3. Once loaded, the client sees a "Start Experience" button
+4. After clicking the button, the client will hear their assigned audio track
+5. The admin can control the audio playback for all clients
+
+## Technical Notes
+
+- The application uses Socket.IO for real-time communication
+- Track assignments alternate between Track 1 and Track 2
+- Track assignments are stored in cookies and persist until the experience ends
+- The admin can see which users are connected and which tracks they're assigned to
+- Audio playback is synchronized across all clients 
