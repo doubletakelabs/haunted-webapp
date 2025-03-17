@@ -15,27 +15,8 @@ io = require("socket.io")(server, {
 });
 const cookieParser = require("cookie-parser");
 
-// Parse command line arguments
-function parseArgs() {
-  const args = process.argv.slice(2);
-  const options = { port: 3000 }; // Default port
-  
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--port' && i + 1 < args.length) {
-      const portValue = parseInt(args[i + 1]);
-      if (!isNaN(portValue)) {
-        options.port = portValue;
-      }
-      i++; // Skip the next argument as it's the port value
-    }
-  }
-  
-  return options;
-}
-
-// Get command line options
-const options = parseArgs();
-const port = options.port;
+// Get port from command line arguments or use default 3000
+const port = process.argv[2] ? parseInt(process.argv[2]) : 3000;
 
 let triggeredEnd = false;
 let audioPlaying = false;
