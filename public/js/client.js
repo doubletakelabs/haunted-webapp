@@ -40,6 +40,7 @@ function deleteCookie(name) {
 // DOM elements
 const audioStatus = document.getElementById('audioStatus');
 const startButton = document.getElementById('startButton');
+const contentContainer = document.getElementById('contentContainer');
 const loadingContainer = document.getElementById('loadingContainer');
 const loadingProgress = document.getElementById('loadingProgress');
 const loadingText = document.getElementById('loadingText');
@@ -242,6 +243,8 @@ function handlePlayEndingTrack(data) {
 // Start button click handler
 startButton.addEventListener('click', () => {
     userInteracted = true;
+    contentContainer.classList.add('hidden');
+    contentContainer.style.display = 'none';
     startButton.classList.add('hidden');
     startButton.style.display = 'none'; // Ensure the button is completely hidden
 
