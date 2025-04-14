@@ -6,7 +6,7 @@ io = require("socket.io")(server, {
   handlePreflightRequest: (req, res) => {
     const headers = {
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      "Access-Control-Allow-Origin": req.headers.origin, //or the specific origin you want to give access to,
+      "Access-Control-Allow-Origin": req.headers.origin,
       "Access-Control-Allow-Credentials": true,
     };
     res.writeHead(200, headers);
@@ -18,12 +18,21 @@ const cookieParser = require("cookie-parser");
 // Get port from command line or use default
 const port = process.argv[2] || 3000;
 
-let triggeredEnd = false;
-let audioPlaying = false;
-let startTime = null;
-let lastTrack = 2; // Track which track was assigned last (start with 2 so first visitor gets track 1)
-let latestCommand = null; // Store the latest command sent to clients
-let connectedUsers = {}; // Store connected users and their assigned tracks
+let connectedUsers = {}; // Store connected users and their assigned roles
+
+// Track the next role to assign
+let nextRoleIndex = 0;
+const roles = ['Human', 'Bot', 'Glitched'];
+
+// Track who is the last human
+let lastHumanSocketId = null;
+
+// Generate the next role in the cycle
+function getNextRole() {
+  const role = roles[nextRoleIndex];
+  nextRoleIndex = (nextRoleIndex + 1) % roles.length;
+  return role;
+}
 
 app.use(cors());
 app.use(cookieParser("doubletakelabs-haunted"));
@@ -39,11 +48,8 @@ app.use(function (req, res, next) {
       httpOnly: false,
       signed: true,
     });
-    //console.log('cookie created successfully');
-  } else {
-    // yes, cookie was already present
   }
-  next(); // <-- important!
+  next();
 });
 
 function getCookieID(str) {
@@ -51,14 +57,9 @@ function getCookieID(str) {
     return "none";
   }
   try {
-    //console.log(str);
     let inputString = str.split("connect.sid=")[1];
-    if (inputString && inputString.includes("; io")) {
+    if (inputString && inputString.includes(";")) {
       inputString = inputString.substring(0, inputString.indexOf(";"));
-    } else if (inputString && inputString.includes("; Path")) {
-      inputString = inputString.substring(0, inputString.indexOf(";"));
-    } else {
-      // No modification needed
     }
     return inputString || "none";
   } catch (error) {
@@ -67,8 +68,8 @@ function getCookieID(str) {
   }
 }
 
-// Get track from cookie string
-function getTrackFromCookie(str) {
+// Get role from cookie string
+function getRoleFromCookie(str) {
   if (str == undefined) {
     return null;
   }
@@ -76,7 +77,7 @@ function getTrackFromCookie(str) {
     const cookies = str.split(';');
     for (const cookie of cookies) {
       const [name, value] = cookie.trim().split('=');
-      if (name === 'audioTrack') {
+      if (name === 'hvbRole') {
         return value;
       }
     }
@@ -87,67 +88,40 @@ function getTrackFromCookie(str) {
   }
 }
 
-// Simple event logging function (replaces database functionality)
+// Simple event logging function
 function logEvent(userID, timestamp, event) {
   console.log(`User ${userID} at ${timestamp}: ${JSON.stringify(event)}`);
-}
-
-// Send playback status to admins
-function updateAdminsWithPlaybackStatus() {
-  let status = 'paused';
-  let elapsedTime = 0;
-  
-  if (audioPlaying && startTime) {
-    if (triggeredEnd) {
-      status = 'playingEnding';
-    } else {
-      status = 'playing';
-    }
-    
-    const currentTime = Date.now();
-    elapsedTime = (currentTime - startTime) / 1000; // Convert to seconds
-  }
-  
-  io.to("admin").emit("playbackStatus", {
-    status: status,
-    elapsedTime: elapsedTime,
-    isEndingTrack: triggeredEnd
-  });
 }
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(`${__dirname}/public`));
 
-// Main route with persistent track assignment
+// Serve manifest.json at root level
+app.get("/manifest.json", function (req, res) {
+  res.sendFile(`${__dirname}/manifest.json`);
+});
+
+// Main route with persistent role assignment
 app.get("/", function (req, res) {
-  // Check if the experience has ended
-  if (triggeredEnd) {
-    // Clear the audioTrack cookie if the experience has ended
-    res.clearCookie("audioTrack", { path: "/" });
-    console.log("Cleared audioTrack cookie due to ended experience");
-    res.sendFile(`${__dirname}/html/index.html`);
-    return;
-  }
+  // Check if user already has an assigned role
+  const existingRole = req.cookies.hvbRole;
   
-  // Check if user already has an assigned track
-  const existingTrack = req.cookies.audioTrack;
-  
-  if (!existingTrack) {
-    // Assign a new track if the user doesn't have one
-    lastTrack = lastTrack === 1 ? 2 : 1;
+  if (!existingRole) {
+    // Assign the next role in the cycle
+    const newRole = getNextRole();
     
-    // Set the track in a cookie
-    res.cookie("audioTrack", lastTrack.toString(), { 
+    // Set the role in a cookie
+    res.cookie("hvbRole", newRole, { 
       maxAge: 7200000, 
       httpOnly: false,
       path: "/"
     });
-    console.log(`New visitor assigned to track ${lastTrack}`);
+    console.log(`New visitor assigned to role: ${newRole}`);
   } else {
-    console.log(`Returning visitor with track ${existingTrack}`);
+    console.log(`Returning visitor with role: ${existingRole}`);
   }
   
-  res.sendFile(`${__dirname}/html/index.html`);
+  res.sendFile(`${__dirname}/html/hvb.html`);
 });
 
 // Admin route
@@ -175,70 +149,64 @@ io.on("connection", function (socket) {
     console.log("Admin connected");
     // Send current user list to the admin
     socket.emit("userList", connectedUsers);
-    // Send current playback status to the admin
-    updateAdminsWithPlaybackStatus();
   } else {
     socket.join("app");
     
-    // Get track from cookie
-    const track = getTrackFromCookie(socket.request.headers.cookie) || 'unassigned';
+    // Get role from cookie
+    const role = getRoleFromCookie(socket.request.headers.cookie) || 'unassigned';
     
     // Store user info
     connectedUsers[socket.id] = {
       id: userID,
-      track: track,
+      role: role,
       connectedAt: timestamp.toLocaleString(),
-      socketId: socket.id
+      socketId: socket.id,
+      isLastHuman: false
     };
     
     // Notify admins about the new user
     updateAdminsWithUserList();
   }
-  
-  // Send current state to new connections
-  // If audio is already playing, tell the new client to start playing at the correct time
-  if (audioPlaying && startTime && !triggeredEnd) {
-    const currentTime = Date.now();
-    const elapsedTime = (currentTime - startTime) / 1000; // Convert to seconds
-    socket.emit("playAudio", { startAt: elapsedTime });
-  }
-
-  if(audioPlaying && triggeredEnd){
-    const currentTime = Date.now();
-    const elapsedTime = (currentTime - startTime) / 1000; // Convert to seconds
-    socket.emit("playEndingTrack", { startAt: elapsedTime });
-  }
 
   logEvent(userID, timestamp, { event: "connected" });
 
-  // Handle request for latest command
-  socket.on("getLatestCommand", function() {
-    console.log("Client requested latest command");
-    
-    if (latestCommand) {
-      // If there's a latest command, calculate the current time offset
-      if (startTime && (latestCommand.type === 'playAudio' || latestCommand.type === 'playEndingTrack')) {
-        const currentTime = Date.now();
-        const elapsedTime = (currentTime - startTime) / 1000; // Convert to seconds
-        
-        // Send the latest command with updated timing
-        socket.emit(latestCommand.type, { startAt: elapsedTime });
-        console.log(`Sent latest command ${latestCommand.type} with updated time: ${elapsedTime}s`);
-      } else {
-        // For commands without timing, just resend them
-        socket.emit(latestCommand.type, latestCommand.data || {});
-        console.log(`Sent latest command ${latestCommand.type}`);
-      }
-    } else {
-      console.log("No latest command to send");
+  // Update role information when client reports it
+  socket.on("reportRole", function(data) {
+    if (connectedUsers[socket.id]) {
+      connectedUsers[socket.id].role = data.role;
+      updateAdminsWithUserList();
     }
   });
 
-  // Update track information when client reports it
-  socket.on("reportTrack", function(data) {
-    if (connectedUsers[socket.id]) {
-      connectedUsers[socket.id].track = data.track;
-      updateAdminsWithUserList();
+  // Handle admin choosing the last human
+  socket.on("chooseLastHuman", function() {
+    if (isAdmin) {
+      // Reset any previous last human
+      if (lastHumanSocketId && connectedUsers[lastHumanSocketId]) {
+        connectedUsers[lastHumanSocketId].isLastHuman = false;
+      }
+      
+      // Get all connected user socket IDs
+      const userSocketIds = Object.keys(connectedUsers);
+      
+      if (userSocketIds.length > 0) {
+        // Choose a random user
+        const randomIndex = Math.floor(Math.random() * userSocketIds.length);
+        lastHumanSocketId = userSocketIds[randomIndex];
+        
+        // Mark the chosen user as the last human
+        connectedUsers[lastHumanSocketId].isLastHuman = true;
+        
+        console.log(`Last human chosen: ${connectedUsers[lastHumanSocketId].id}`);
+        
+        // Notify all clients
+        io.to(lastHumanSocketId).emit("youAreLastHuman");
+        
+        // Notify the admin
+        io.to("admin").emit("lastHumanChosen", {
+          id: connectedUsers[lastHumanSocketId].id
+        });
+      }
     }
   });
 
@@ -248,55 +216,20 @@ io.on("connection", function (socket) {
     logEvent(user, timestamp, msg.event);
   });
 
-  socket.on("restart", function (msg) {
-    console.log("experience restarted");
-    triggeredEnd = false;
-    // Don't automatically start audio playback
-    audioPlaying = false;
-    startTime = null;
-    latestCommand = { type: 'restart' };
-    io.in("app").emit("restart");
-    io.in("app").emit("clearTrackCookie");
-    // Update admin playback status
-    updateAdminsWithPlaybackStatus();
-  });
-  
-  // Handle play audio event from admin
-  socket.on("playAudio", function (msg) {
-    console.log("audio playback triggered by admin");
-    audioPlaying = true;
-    startTime = Date.now();
-    latestCommand = { type: 'playAudio', data: { startAt: 0 } };
-    io.in("app").emit("playAudio", { startAt: 0 });
-    // Update admin playback status
-    updateAdminsWithPlaybackStatus();
-  });
-  
-  // Handle pause audio event from admin
-  socket.on("pauseAudio", function (msg) {
-    console.log("audio playback paused by admin");
-    audioPlaying = false;
-    startTime = null;
-    latestCommand = { type: 'pauseAudio' };
-    io.in("app").emit("pauseAudio");
-    // Update admin playback status
-    updateAdminsWithPlaybackStatus();
-  });
-  
-  // Handle play ending track event from admin
-  socket.on("playEndingTrack", function (msg) {
-    console.log("ending track playback triggered by admin");
-    startTime = Date.now();
-    audioPlaying = true;
-    latestCommand = { type: 'playEndingTrack', data: { startAt: 0 } };
-    io.in("app").emit("playEndingTrack", { startAt: 0 });
-    triggeredEnd = true;
-    // Update admin playback status
-    updateAdminsWithPlaybackStatus();
+  socket.on("resetRoles", function () {
+    console.log("Roles reset by admin");
+    // Clear all role cookies and force refresh
+    io.in("app").emit("clearRoleCookie");
+    io.in("app").emit("forceRefresh");
   });
 
   socket.on("disconnect", function () {
     console.log("a visitor disconnected");
+    
+    // If this was the last human, clear the status
+    if (lastHumanSocketId === socket.id) {
+      lastHumanSocketId = null;
+    }
     
     // Remove user from connected users
     if (connectedUsers[socket.id]) {
@@ -312,9 +245,6 @@ io.on("connection", function (socket) {
   });
 });
 
-// Set up a timer to periodically update admin playback status
-setInterval(updateAdminsWithPlaybackStatus, 5000);
-
 server.listen(parseInt(port), function () {
-  console.log(`Haunted House server listening on port ${port}`);
+  console.log(`HVB server listening on port ${port}`);
 });

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <!-- Load P5.js library -->
+  <script src="https://cdn.jsdelivr.net/npm/p5@1.6.0/lib/p5.min.js"></script>
+  <!-- Load Socket.IO client library -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Human vs Bot Game</title>
+
+  <!-- Styling for layout and buttons -->
+  <style>
+    html, body {
+  background-color: #0a0a0a;
+  color: #cfcfcf;
+  font-family: 'Courier New', Courier, monospace;
+  text-align: center;
+  margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      position: fixed;
+      overflow: hidden;
+      touch-action: manipulation;
+    }
+    canvas {
+      display: block;
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: -1;
+}
+    .container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 10px;
+      box-sizing: border-box;
+      background-color: rgba(20, 20, 20, 0.95);
+      border: 2px solid #888;
+      box-shadow: 0 0 12px rgba(255, 255, 255, 0.1);
+    }
+    .container > * {
+      max-width: 90%;
+    }
+    button {
+      font-family: 'Courier New', Courier, monospace;
+      background-color: #111;
+      color: #cfcfcf;
+      border: 2px solid #555;
+      padding: 10px 20px;
+      margin-top: 20px;
+      cursor: pointer;
+      box-shadow: 0 0 4px #999;
+    }
+    button:hover {
+      background-color: #222;
+    }
+    .progress-bar {
+      width: 90%;
+      max-width: 400px;
+      background-color: #1e1e1e;
+      border: 1px solid #444;
+      margin-top: 20px;
+      height: 20px;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(to right, #8affff, #ff8aff);
+      width: 0%;
+      transition: width 0.1s linear;
+    }
+    .role-box {
+      background-color: #141414;
+      padding: 20px;
+      border: 1px dashed #888;
+      margin: 20px 0;
+      width: 90%;
+      max-width: 400px;
+    }
+    #installPrompt {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0,0,0,0.95);
+      color: #fff;
+      padding: 40px 20px;
+      text-align: center;
+      z-index: 10000;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      font-size: 1.2em;
+      box-sizing: border-box;
+    }
+    #installPrompt h2 {
+      color: #8affff;
+      margin-bottom: 20px;
+    }
+    #installPrompt p {
+      margin: 10px 0;
+      max-width: 90%;
+    }
+    #installPrompt button {
+      margin-top: 30px;
+      font-size: 1.1em;
+      padding: 15px 30px;
+    }
+    h1 {
+      margin-top: 0;
+      font-size: 1.8em;
+    }
+    h2 {
+      font-size: 1.6em;
+    }
+    p {
+      margin: 10px 0;
+      font-size: 1.1em;
+    }
+  </style>
+</head>
+<body>
+  <!-- Installation Prompt -->
+  <div id="installPrompt">
+    <h2>Install HUMAN vs BOT</h2>
+    <p>To begin, add this experience to your Home Screen for full immersion.</p>
+    <p>Tap the <strong>Share</strong> icon 📤, then <em>"Add to Home Screen"</em>.</p>
+    <p><strong>Then close this window and re-open from the Home Screen icon.</strong></p>
+    <button id="dismissInstallPrompt">Close</button>
+  </div>
+
+  <!-- Title Screen -->
+  <div class="container" id="titleScreen">
+    <h1>HUMAN vs BOT</h1>
+    <p>Outwit your doppelgänger. Escape the dead internet. Become the Last Human.</p>
+    <button id="startButton">Play</button>
+  </div>
+
+  <!-- Game Container -->
+  <div class="container" id="gameContainer">
+    <h1>Role Assignment</h1>
+    <p>This is your secret role. <strong>Do NOT share it with anyone.</strong></p>
+    <div class="role-box">
+      <h2 id="roleTitle">Loading role...</h2>
+      <p id="roleInstructions">Please wait.</p>
+    </div>
+    <div class="progress-bar">
+      <div id="progressFill" class="progress-bar-fill"></div>
+    </div>
+    <p id="percentDisplay">Loading... 0%</p>
+  </div>
+
+  <!-- Load external JavaScript file -->
+  <script src="/js/hvb.js"></script>
+</body>
+</html>
