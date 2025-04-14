@@ -423,7 +423,7 @@ function showRoundThree() {
   pre.innerHTML = `<img src="img/eye.jpeg" style="height: 95vh; object-fit: contain; margin: 0 auto;">`;
 
   let newHTML = `
-  <p style="max-width: 600px; margin: 30px 0 auto; color: #00ffcc; text-wrap: auto;">1. Everyone take turns blinking your eyes and go around your gang 4 times.</h2>
+  <p style="max-width: 600px; margin: 30px 0 auto; color: #00ffcc; text-wrap: auto;">1. Everyone take turns blinking their eyes and go around your gang 4 times.</h2>
   <pre id="eyegraphic" style="white-space: pre-wrap;">
 ▒▒                      
 ██          ██            
