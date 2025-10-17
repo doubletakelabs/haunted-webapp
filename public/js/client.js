@@ -57,6 +57,8 @@ socket.emit('reportTrack', { track: audioTrack });
 // Audio loading state
 let mainAudioLoaded = false;
 let endingAudioLoaded = false;
+let loopAudioLoaded = false;
+let lastHumanAudioLoaded = false;
 let totalBytesLoaded = 0;
 let totalBytesExpected = 1; // Start with 1 to avoid division by zero
 
@@ -68,6 +70,14 @@ mainAudio.loop = false;
 const endingAudio = new Audio();
 endingAudio.src = '/audio/end.mp3';
 endingAudio.loop = false;
+
+const loopAudio = new Audio();
+loopAudio.src = '/audio/loop.mp3';
+loopAudio.loop = true; // Loop track should loop continuously
+
+const lastHumanAudio = new Audio();
+lastHumanAudio.src = '/audio/lasthuman.mp3';
+lastHumanAudio.loop = false;
 
 // Hide loading container initially until we start loading
 loadingContainer.style.display = 'none';
@@ -135,10 +145,12 @@ function startPreloading() {
     loadingContainer.style.display = 'flex';
     startButton.style.display = 'none';
     
-    // Preload both audio files
+    // Preload all audio files
     Promise.all([
         preloadAudio(`/audio/track${audioTrack}.mp3`, true),
-        preloadAudio('/audio/end.mp3', false)
+        preloadAudio('/audio/end.mp3', false),
+        preloadAudio('/audio/loop.mp3', false),
+        preloadAudio('/audio/lasthuman.mp3', false)
     ]).then(() => {
         console.log('All audio files preloaded successfully');
     }).catch(error => {
@@ -158,6 +170,10 @@ function updateStatus() {
         statusText += ` | Playing Main | Time: ${Math.floor(mainAudio.currentTime)}s`;
     } else if (!endingAudio.paused) {
         statusText += ` | Playing Ending | Time: ${Math.floor(endingAudio.currentTime)}s`;
+    } else if (!lastHumanAudio.paused) {
+        statusText += ` | Playing Last Human | Time: ${Math.floor(lastHumanAudio.currentTime)}s`;
+    } else if (!loopAudio.paused) {
+        statusText += ` | Playing Loop | Time: ${Math.floor(loopAudio.currentTime)}s`;
     } else {
         statusText += ' | Paused';
     }
@@ -240,6 +256,97 @@ function handlePlayEndingTrack(data) {
     updateStatus();
 }
 
+// Handle play lasthuman track command
+function handlePlayLastHumanTrack(data) {
+    if (!userInteracted) {
+        console.log('Cannot play lasthuman audio until user interacts with the page');
+        return;
+    }
+    
+    console.log('Executing play lasthuman track command', data);
+    
+    // Stop main and ending audio
+    mainAudio.pause();
+    endingAudio.pause();
+    loopAudio.pause();
+    
+    // Play lasthuman audio
+    if (data && typeof data.startAt === 'number') {
+        if(data.startAt > lastHumanAudio.duration) {
+            return;
+        }
+        lastHumanAudio.currentTime = data.startAt;
+    }
+
+    lastHumanAudio.play().catch(e => {
+        console.error('Error playing lasthuman audio:', e);
+    });
+    
+    updateStatus();
+}
+
+// Handle play loop track command
+function handlePlayLoopTrack(data) {
+    if (!userInteracted) {
+        console.log('Cannot play loop audio until user interacts with the page');
+        return;
+    }
+    
+    console.log('Executing play loop track command', data);
+    
+    // Stop main and ending audio
+    mainAudio.pause();
+    endingAudio.pause();
+    
+    // Play loop audio
+    if (data && typeof data.startAt === 'number') {
+        if(data.startAt > loopAudio.duration) {
+            return;
+        }
+        loopAudio.currentTime = data.startAt;
+    }
+
+    loopAudio.play().catch(e => {
+        console.error('Error playing loop audio:', e);
+    });
+    
+    updateStatus();
+}
+
+// Handle return from loop command
+function handleReturnFromLoop(data) {
+    if (!userInteracted) {
+        console.log('Cannot return from loop until user interacts with the page');
+        return;
+    }
+    
+    console.log('Executing return from loop command', data);
+    
+    // Stop loop audio
+    loopAudio.pause();
+    loopAudio.currentTime = 0;
+    
+    // Resume main audio from where it was paused
+    if (data && typeof data.startAt === 'number') {
+        console.log(`Resuming main audio at ${data.startAt} seconds`);
+        if(data.startAt > mainAudio.duration) {
+            console.log('Resume time exceeds audio duration, starting from beginning');
+            mainAudio.currentTime = 0;
+        } else {
+            mainAudio.currentTime = data.startAt;
+        }
+    } else {
+        console.log('No resume time provided, starting from beginning');
+        mainAudio.currentTime = 0;
+    }
+
+    mainAudio.play().catch(e => {
+        console.error('Error resuming main audio:', e);
+    });
+    
+    updateStatus();
+}
+
 // Start button click handler
 startButton.addEventListener('click', () => {
     userInteracted = true;
@@ -276,11 +383,25 @@ socket.on('playEndingTrack', function(data) {
     handlePlayEndingTrack(data);
 });
 
+socket.on('playLastHumanTrack', function(data) {
+    handlePlayLastHumanTrack(data);
+});
+
+socket.on('playLoopTrack', function(data) {
+    handlePlayLoopTrack(data);
+});
+
+socket.on('returnFromLoop', function(data) {
+    handleReturnFromLoop(data);
+});
+
 socket.on('restart', function() {
     console.log('Experience restarted');
     
     mainAudio.pause();
     endingAudio.pause();
+    loopAudio.pause();
+    lastHumanAudio.pause();
     
     updateStatus();
     

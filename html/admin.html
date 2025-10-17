@@ -119,6 +119,22 @@
             background-color: #7b1fa2;
         }
         
+        #loopTrackBtn {
+            background-color: #ff9800;
+        }
+        
+        #loopTrackBtn:hover {
+            background-color: #f57c00;
+        }
+        
+        #returnFromLoopBtn {
+            background-color: #607d8b;
+        }
+        
+        #returnFromLoopBtn:hover {
+            background-color: #455a64;
+        }
+        
         #statusInfo {
             height: 300px;
             overflow-y: auto;
@@ -161,6 +177,16 @@
         
         .track-2 {
             color: #9c27b0;
+            font-weight: bold;
+        }
+        
+        .track-3 {
+            color: #ff9800;
+            font-weight: bold;
+        }
+        
+        .track-4 {
+            color: #4caf50;
             font-weight: bold;
         }
         
@@ -241,10 +267,21 @@
             </div>
             
             <div class="control-section">
+                <h2>Track Management</h2>
+                <a href="/upload" style="display: inline-block; background-color: #ff9800; color: white; text-decoration: none; padding: 10px 15px; border-radius: 4px; margin: 5px; transition: background-color 0.3s;" onmouseover="this.style.backgroundColor='#f57c00'" onmouseout="this.style.backgroundColor='#ff9800'">Upload New Track</a>
+            </div>
+            
+            <div class="control-section">
                 <h2>Audio Control</h2>
                 <button id="playBtn">Play All Audio</button>
-                <button id="pauseBtn">Pause All Audio</button>
-                <button id="endingTrackBtn">Play Ending Track</button>
+                <button id="pauseBtn">Stop All Audio</button>
+                <button id="endingTrackBtn">Play Ending Track/Choose Last Human</button>
+            </div>
+            
+            <div class="control-section">
+                <h2>Loop Track Control</h2>
+                <button id="loopTrackBtn">Push to Loop Track</button>
+                <button id="returnFromLoopBtn">Return to Original Track</button>
             </div>
             
             <div class="audio-timer-panel">

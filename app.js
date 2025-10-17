@@ -14,6 +14,9 @@ io = require("socket.io")(server, {
   },
 });
 const cookieParser = require("cookie-parser");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
 
 // Get port from command line or use default
 const port = process.argv[2] || 3000;
@@ -21,9 +24,12 @@ const port = process.argv[2] || 3000;
 let triggeredEnd = false;
 let audioPlaying = false;
 let startTime = null;
-let lastTrack = 2; // Track which track was assigned last (start with 2 so first visitor gets track 1)
+let lastTrack = 4; // Track which track was assigned last (start with 4 so first visitor gets track 1)
 let latestCommand = null; // Store the latest command sent to clients
 let connectedUsers = {}; // Store connected users and their assigned tracks
+let loopMode = false; // Track if we're in loop mode
+let pausedTime = null; // Store the time when audio was paused for loop mode
+let selectedLastHumanUser = null; // Store the user selected to hear lasthuman.mp3
 
 app.use(cors());
 app.use(cookieParser("doubletakelabs-haunted"));
@@ -97,7 +103,10 @@ function updateAdminsWithPlaybackStatus() {
   let status = 'paused';
   let elapsedTime = 0;
   
-  if (audioPlaying && startTime) {
+  if (loopMode) {
+    status = 'playingLoop';
+    // In loop mode, we don't track elapsed time the same way
+  } else if (audioPlaying && startTime) {
     if (triggeredEnd) {
       status = 'playingEnding';
     } else {
@@ -111,12 +120,40 @@ function updateAdminsWithPlaybackStatus() {
   io.to("admin").emit("playbackStatus", {
     status: status,
     elapsedTime: elapsedTime,
-    isEndingTrack: triggeredEnd
+    isEndingTrack: triggeredEnd,
+    isLoopMode: loopMode,
+    pausedTime: pausedTime
   });
 }
 
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(`${__dirname}/public`));
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, `${__dirname}/public/audio/`);
+  },
+  filename: function (req, file, cb) {
+    // Use a temporary filename first, we'll rename it in the route handler
+    cb(null, `temp_${Date.now()}_${file.originalname}`);
+  }
+});
+
+const upload = multer({ 
+  storage: storage,
+  fileFilter: function (req, file, cb) {
+    // Check if file is audio
+    if (file.mimetype.startsWith('audio/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only audio files are allowed!'), false);
+    }
+  },
+  limits: {
+    fileSize: 50 * 1024 * 1024 // 50MB limit
+  }
+});
 
 // Main route with persistent track assignment
 app.get("/", function (req, res) {
@@ -134,7 +171,7 @@ app.get("/", function (req, res) {
   
   if (!existingTrack) {
     // Assign a new track if the user doesn't have one
-    lastTrack = lastTrack === 1 ? 2 : 1;
+    lastTrack = lastTrack === 4 ? 1 : lastTrack + 1;
     
     // Set the track in a cookie
     res.cookie("audioTrack", lastTrack.toString(), { 
@@ -153,6 +190,99 @@ app.get("/", function (req, res) {
 // Admin route
 app.get("/admin", function (req, res) {
   res.sendFile(`${__dirname}/html/admin.html`);
+});
+
+// Upload route
+app.get("/upload", function (req, res) {
+  res.sendFile(`${__dirname}/html/upload.html`);
+});
+
+// Handle file upload
+app.post("/upload", upload.single('audioFile'), function (req, res) {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'No file uploaded' 
+      });
+    }
+
+    if (!req.body.trackNumber) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Track number is required' 
+      });
+    }
+
+    const trackNumber = req.body.trackNumber;
+    let finalFileName;
+    
+    // Validate track number/name
+    if (trackNumber === 'end' || trackNumber === 'lasthuman' || trackNumber === 'loop') {
+      finalFileName = `${trackNumber}.mp3`;
+    } else {
+      const trackNum = parseInt(trackNumber);
+      if (trackNum < 1 || trackNum > 4) {
+        return res.status(400).json({ 
+          success: false, 
+          error: 'Track must be 1-4, end, lasthuman, or loop' 
+        });
+      }
+      finalFileName = `track${trackNum}.mp3`;
+    }
+
+    // Rename the uploaded file to the correct track name
+    const tempFilePath = req.file.path;
+    const finalFilePath = path.join(path.dirname(tempFilePath), finalFileName);
+    
+    // Remove existing track file if it exists
+    if (fs.existsSync(finalFilePath)) {
+      fs.unlinkSync(finalFilePath);
+    }
+    
+    // Rename the temporary file to the final name
+    fs.renameSync(tempFilePath, finalFilePath);
+
+    console.log(`Successfully uploaded ${finalFileName}`);
+    
+    res.json({ 
+      success: true, 
+      message: `${finalFileName} uploaded successfully!`,
+      filename: finalFileName,
+      trackNumber: trackNumber
+    });
+
+  } catch (error) {
+    console.error('Upload error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message || 'Upload failed' 
+    });
+  }
+});
+
+// Error handling middleware for multer
+app.use(function (error, req, res, next) {
+  if (error instanceof multer.MulterError) {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'File too large. Maximum size is 50MB.' 
+      });
+    }
+  }
+  
+  if (error.message === 'Only audio files are allowed!') {
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Only audio files are allowed!' 
+    });
+  }
+  
+  res.status(500).json({ 
+    success: false, 
+    error: error.message || 'Upload failed' 
+  });
 });
 
 // Send current user list to admins
@@ -206,7 +336,13 @@ io.on("connection", function (socket) {
   if(audioPlaying && triggeredEnd){
     const currentTime = Date.now();
     const elapsedTime = (currentTime - startTime) / 1000; // Convert to seconds
-    socket.emit("playEndingTrack", { startAt: elapsedTime });
+    
+    // Check if this user should hear lasthuman track
+    if (socket.id === selectedLastHumanUser) {
+      socket.emit("playLastHumanTrack", { startAt: elapsedTime });
+    } else {
+      socket.emit("playEndingTrack", { startAt: elapsedTime });
+    }
   }
 
   logEvent(userID, timestamp, { event: "connected" });
@@ -251,6 +387,9 @@ io.on("connection", function (socket) {
   socket.on("restart", function (msg) {
     console.log("experience restarted");
     triggeredEnd = false;
+    loopMode = false;
+    pausedTime = null;
+    selectedLastHumanUser = null;
     // Don't automatically start audio playback
     audioPlaying = false;
     startTime = null;
@@ -286,11 +425,92 @@ io.on("connection", function (socket) {
   // Handle play ending track event from admin
   socket.on("playEndingTrack", function (msg) {
     console.log("ending track playback triggered by admin");
+    
+    // Randomly select one user to hear lasthuman.mp3
+    const userSocketIds = Object.keys(connectedUsers);
+    if (userSocketIds.length > 0) {
+      const randomIndex = Math.floor(Math.random() * userSocketIds.length);
+      selectedLastHumanUser = userSocketIds[randomIndex];
+      console.log(`Selected user ${selectedLastHumanUser} to hear lasthuman.mp3`);
+    } else {
+      selectedLastHumanUser = null;
+      console.log("No users connected, no lasthuman selection");
+    }
+    
     startTime = Date.now();
     audioPlaying = true;
-    latestCommand = { type: 'playEndingTrack', data: { startAt: 0 } };
-    io.in("app").emit("playEndingTrack", { startAt: 0 });
     triggeredEnd = true;
+    
+    // Send different tracks to different users
+    Object.keys(connectedUsers).forEach(userSocketId => {
+      if (userSocketId === selectedLastHumanUser) {
+        // Send lasthuman track to selected user
+        io.to(userSocketId).emit("playLastHumanTrack", { startAt: 0 });
+        console.log(`Sent lasthuman track to user ${userSocketId}`);
+      } else {
+        // Send ending track to all other users
+        io.to(userSocketId).emit("playEndingTrack", { startAt: 0 });
+        console.log(`Sent ending track to user ${userSocketId}`);
+      }
+    });
+    
+    latestCommand = { type: 'playEndingTrack', data: { startAt: 0 } };
+    // Update admin playback status
+    updateAdminsWithPlaybackStatus();
+  });
+
+  // Handle play loop track event from admin
+  socket.on("playLoopTrack", function (msg) {
+    console.log("loop track playback triggered by admin");
+    
+    // Store the current playback time if audio is playing
+    if (audioPlaying && startTime) {
+      const currentTime = Date.now();
+      pausedTime = (currentTime - startTime) / 1000; // Convert to seconds
+      console.log(`Paused main audio at ${pausedTime} seconds`);
+    } else {
+      console.log("No audio was playing, pausedTime remains null");
+    }
+    
+    // Set loop mode
+    loopMode = true;
+    audioPlaying = true;
+    startTime = Date.now();
+    latestCommand = { type: 'playLoopTrack', data: { startAt: 0 } };
+    
+    io.in("app").emit("playLoopTrack", { startAt: 0 });
+    // Update admin playback status
+    updateAdminsWithPlaybackStatus();
+  });
+
+  // Handle return from loop track event from admin
+  socket.on("returnFromLoop", function (msg) {
+    console.log("return from loop track triggered by admin");
+    
+    // Exit loop mode
+    loopMode = false;
+    
+    // Resume from where we left off
+    if (pausedTime !== null) {
+      console.log(`Resuming from paused time: ${pausedTime} seconds`);
+      startTime = Date.now() - (pausedTime * 1000);
+      const resumeTime = pausedTime;
+      pausedTime = null; // Clear the paused time after using it
+      
+      audioPlaying = true;
+      latestCommand = { type: 'returnFromLoop', data: { startAt: resumeTime } };
+      
+      io.in("app").emit("returnFromLoop", { startAt: resumeTime });
+    } else {
+      console.log("No paused time available, starting from beginning");
+      // If no paused time, start from beginning
+      startTime = Date.now();
+      audioPlaying = true;
+      latestCommand = { type: 'returnFromLoop', data: { startAt: 0 } };
+      
+      io.in("app").emit("returnFromLoop", { startAt: 0 });
+    }
+    
     // Update admin playback status
     updateAdminsWithPlaybackStatus();
   });
