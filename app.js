@@ -34,7 +34,7 @@ let pausedTime = null; // Store the time when audio was paused for loop mode
 
 app.use(cors());
 app.use(cookieParser("doubletakelabs-haunted"));
-app.use(express.json());
+app.use(express.json({ limit: '500mb' }));
 
 app.use(function (req, res, next) {
   var cookie = req.signedCookies["connect.sid"];
@@ -131,7 +131,7 @@ function getAudioFiles() {
   }
 }
 
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '500mb' }));
 app.use(express.static(`${__dirname}/public`));
 
 // Configure multer for file uploads
@@ -154,7 +154,7 @@ const upload = multer({
     }
   },
   limits: {
-    fileSize: 50 * 1024 * 1024 // 50MB limit
+    fileSize: 500 * 1024 * 1024 // 500MB limit
   }
 });
 
