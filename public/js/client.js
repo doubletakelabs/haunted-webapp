@@ -9,32 +9,14 @@ function getCookie(name) {
     return null;
 }
 
-function deleteCookie(name) {
-    // Multiple approaches to ensure cookie deletion works
-    // 1. Standard approach
-    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;`;
-    
-    // 2. Try with different paths
-    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/`;
-    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=`;
-    
-    // 3. Try with domain
-    const domain = window.location.hostname;
-    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; domain=${domain}`;
-    
-    // 4. Try with max-age approach
-    document.cookie = `${name}=; max-age=0; path=/;`;
-    
-    // 5. Overwrite with empty value
-    document.cookie = `${name}=`;
-    
-    // Verify deletion
-    const cookieExists = getCookie(name);
-    if (cookieExists) {
-        console.warn(`Warning: Failed to delete cookie ${name}`);
-    } else {
-        console.log(`Cookie ${name} deleted successfully`);
+function setCookie(name, value, days) {
+    var expires = "";
+    if (days) {
+        var date = new Date();
+        date.setTime(date.getTime() + (days*24*60*60*1000));
+        expires = "; expires=" + date.toUTCString();
     }
+    document.cookie = name + "=" + (value || "")  + expires + "; path=/";
 }
 
 // DOM elements
@@ -42,382 +24,259 @@ const audioStatus = document.getElementById('audioStatus');
 const startButton = document.getElementById('startButton');
 const contentContainer = document.getElementById('contentContainer');
 const loadingContainer = document.getElementById('loadingContainer');
-const loadingProgress = document.getElementById('loadingProgress');
 const loadingText = document.getElementById('loadingText');
 
-// Track if user has interacted with the page
+// State
 let userInteracted = false;
+let audioTrack = getCookie('audioTrack') || '1';
+let stemPlaying = false; // Desired state of stem
+let triggerPlaying = false;
+let currentTriggerFile = '';
+let triggerStartTime = 0; // To calculate how much time to skip
+let isLastClip = false;
 
-// Get the assigned track
-const audioTrack = getCookie('audioTrack') || '1'; // Default to track 1
+// Audio Elements
+const mainAudio = new Audio(); // The Stem
+mainAudio.loop = false; 
+// We preload main stem based on track
+mainAudio.src = `/audio/track${audioTrack}.mp3`;
+
+const triggerAudio = new Audio(); // The Interruption
+triggerAudio.onended = () => {
+    triggerPlaying = false;
+    currentTriggerFile = '';
+    
+    resumeStemIfShould();
+    
+    isLastClip = false; // Reset flag
+    updateStatus();
+};
 
 // Report track to server
 socket.emit('reportTrack', { track: audioTrack });
 
-// Audio loading state
-let mainAudioLoaded = false;
-let endingAudioLoaded = false;
-let loopAudioLoaded = false;
-let lastHumanAudioLoaded = false;
-let totalBytesLoaded = 0;
-let totalBytesExpected = 1; // Start with 1 to avoid division by zero
-
-// Create audio elements
-const mainAudio = new Audio();
-mainAudio.src = `/audio/track${audioTrack}.mp3`;
-mainAudio.loop = false;
-
-const endingAudio = new Audio();
-endingAudio.src = '/audio/end.mp3';
-endingAudio.loop = false;
-
-const loopAudio = new Audio();
-loopAudio.src = '/audio/loop.mp3';
-loopAudio.loop = true; // Loop track should loop continuously
-
-const lastHumanAudio = new Audio();
-lastHumanAudio.src = '/audio/lasthuman.mp3';
-lastHumanAudio.loop = false;
-
-// Hide loading container initially until we start loading
-loadingContainer.style.display = 'none';
-
-// Update loading progress
-function updateLoadingProgress(loaded, total, isMainAudio) {
-    if (isMainAudio) {
-        mainAudioLoaded = (loaded === total);
-    } else {
-        endingAudioLoaded = (loaded === total);
-    }
-    
-    totalBytesLoaded = loaded;
-    totalBytesExpected = total;
-    
-    // Calculate percentage
-    const percentage = Math.min(100, Math.round((totalBytesLoaded / totalBytesExpected) * 100));
-    
-    // Update loading bar
-    loadingProgress.style.width = `${percentage}%`;
-    loadingText.textContent = `Loading audio files: ${percentage}%`;
-    
-    // If both files are loaded, hide the loading bar and show the start button
-    if (mainAudioLoaded && endingAudioLoaded) {
-        loadingContainer.style.display = 'none';
-        startButton.style.display = 'block';
-        
-        // Still update the status text even though it's hidden (for debugging)
-        audioStatus.textContent = 'Audio loaded. Ready to start.';
-    }
-}
-
-// Set up XMLHttpRequest to track loading progress for main audio
-function preloadAudio(url, isMainAudio) {
-    return new Promise((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('GET', url, true);
-        xhr.responseType = 'arraybuffer';
-        
-        xhr.onprogress = function(event) {
-            if (event.lengthComputable) {
-                updateLoadingProgress(event.loaded, event.total, isMainAudio);
-            }
-        };
-        
-        xhr.onload = function() {
-            if (xhr.status === 200) {
-                updateLoadingProgress(xhr.response.byteLength, xhr.response.byteLength, isMainAudio);
-                resolve();
-            } else {
-                reject(new Error(`Failed to load audio: ${xhr.statusText}`));
-            }
-        };
-        
-        xhr.onerror = function() {
-            reject(new Error('Network error while loading audio'));
-        };
-        
-        xhr.send();
-    });
-}
-
-// Start preloading audio files
-function startPreloading() {
-    loadingContainer.style.display = 'flex';
-    startButton.style.display = 'none';
-    
-    // Preload all audio files
-    Promise.all([
-        preloadAudio(`/audio/track${audioTrack}.mp3`, true),
-        preloadAudio('/audio/end.mp3', false),
-        preloadAudio('/audio/loop.mp3', false),
-        preloadAudio('/audio/lasthuman.mp3', false)
-    ]).then(() => {
-        console.log('All audio files preloaded successfully');
-    }).catch(error => {
-        console.error('Error preloading audio:', error);
-        loadingText.textContent = 'Error loading audio. Please refresh the page.';
-    });
-}
-
-// Start preloading immediately
-startPreloading();
-
-// Update status display
-function updateStatus() {
-    let statusText = `Track: ${audioTrack}`;
-    
-    if (!mainAudio.paused) {
-        statusText += ` | Playing Main | Time: ${Math.floor(mainAudio.currentTime)}s`;
-    } else if (!endingAudio.paused) {
-        statusText += ` | Playing Ending | Time: ${Math.floor(endingAudio.currentTime)}s`;
-    } else if (!lastHumanAudio.paused) {
-        statusText += ` | Playing Last Human | Time: ${Math.floor(lastHumanAudio.currentTime)}s`;
-    } else if (!loopAudio.paused) {
-        statusText += ` | Playing Loop | Time: ${Math.floor(loopAudio.currentTime)}s`;
-    } else {
-        statusText += ' | Paused';
-    }
-    
-    // Update the status text even though it's hidden (for debugging)
-    audioStatus.textContent = statusText;
-    
-    // Also log to console for debugging
-    console.log(`Status: ${statusText}`);
-}
-
-// Handle play audio command
-function handlePlayAudio(data) {
-    if (!userInteracted) {
-        console.log('Cannot play audio until user interacts with the page');
-        return;
-    }
-    
-    console.log('Executing play command', data);
-    
-    // Stop ending audio
-    endingAudio.pause();
-    endingAudio.currentTime = 0;
-    
-    // Play main audio
-    if (data && typeof data.startAt === 'number') {
-        if(data.startAt > mainAudio.duration) {
-            return;
-        }
-        mainAudio.currentTime = data.startAt;
-    }
-    
-    mainAudio.play().catch(e => {
-        console.error('Error playing audio:', e);
-    });
-    
-    updateStatus();
-}
-
-// Handle pause audio command
-function handlePauseAudio() {
-    if (!userInteracted) {
-        console.log('Cannot pause audio until user interacts with the page');
-        return;
-    }
-    
-    console.log('Executing pause command');
-    
-    mainAudio.pause();
-    endingAudio.pause();
-    
-    updateStatus();
-}
-
-// Handle play ending track command
-function handlePlayEndingTrack(data) {
-    if (!userInteracted) {
-        console.log('Cannot play ending audio until user interacts with the page');
-        return;
-    }
-    
-    console.log('Executing play ending track command', data);
-    
-    // Stop main audio
-    mainAudio.pause();
-    mainAudio.currentTime = 0;
-    
-    // Play ending audio
-    if (data && typeof data.startAt === 'number') {
-        if(data.startAt > endingAudio.duration) {
-            return;
-        }
-        endingAudio.currentTime = data.startAt;
-    }
-
-    endingAudio.play().catch(e => {
-        console.error('Error playing ending audio:', e);
-    });
-    
-    updateStatus();
-}
-
-// Handle play lasthuman track command
-function handlePlayLastHumanTrack(data) {
-    if (!userInteracted) {
-        console.log('Cannot play lasthuman audio until user interacts with the page');
-        return;
-    }
-    
-    console.log('Executing play lasthuman track command', data);
-    
-    // Stop main and ending audio
-    mainAudio.pause();
-    endingAudio.pause();
-    loopAudio.pause();
-    
-    // Play lasthuman audio
-    if (data && typeof data.startAt === 'number') {
-        if(data.startAt > lastHumanAudio.duration) {
-            return;
-        }
-        lastHumanAudio.currentTime = data.startAt;
-    }
-
-    lastHumanAudio.play().catch(e => {
-        console.error('Error playing lasthuman audio:', e);
-    });
-    
-    updateStatus();
-}
-
-// Handle play loop track command
-function handlePlayLoopTrack(data) {
-    if (!userInteracted) {
-        console.log('Cannot play loop audio until user interacts with the page');
-        return;
-    }
-    
-    console.log('Executing play loop track command', data);
-    
-    // Stop main and ending audio
-    mainAudio.pause();
-    endingAudio.pause();
-    
-    // Play loop audio
-    if (data && typeof data.startAt === 'number') {
-        if(data.startAt > loopAudio.duration) {
-            return;
-        }
-        loopAudio.currentTime = data.startAt;
-    }
-
-    loopAudio.play().catch(e => {
-        console.error('Error playing loop audio:', e);
-    });
-    
-    updateStatus();
-}
-
-// Handle return from loop command
-function handleReturnFromLoop(data) {
-    if (!userInteracted) {
-        console.log('Cannot return from loop until user interacts with the page');
-        return;
-    }
-    
-    console.log('Executing return from loop command', data);
-    
-    // Stop loop audio
-    loopAudio.pause();
-    loopAudio.currentTime = 0;
-    
-    // Resume main audio from where it was paused
-    if (data && typeof data.startAt === 'number') {
-        console.log(`Resuming main audio at ${data.startAt} seconds`);
-        if(data.startAt > mainAudio.duration) {
-            console.log('Resume time exceeds audio duration, starting from beginning');
-            mainAudio.currentTime = 0;
-        } else {
-            mainAudio.currentTime = data.startAt;
-        }
-    } else {
-        console.log('No resume time provided, starting from beginning');
-        mainAudio.currentTime = 0;
-    }
-
-    mainAudio.play().catch(e => {
-        console.error('Error resuming main audio:', e);
-    });
-    
-    updateStatus();
-}
-
-// Start button click handler
+// Interaction Handler
 startButton.addEventListener('click', () => {
     userInteracted = true;
-    contentContainer.classList.add('hidden');
     contentContainer.style.display = 'none';
-    startButton.classList.add('hidden');
-    startButton.style.display = 'none'; // Ensure the button is completely hidden
-
-    mainAudio.play();
-    endingAudio.play();
-    mainAudio.pause();
-    endingAudio.pause();
-
-    // Request the latest command from the server
-    socket.emit('getLatestCommand');
+    loadingContainer.style.display = 'none';
     
-    // Update status to show we're ready
+    // unlock audio
+    mainAudio.play().then(() => {
+        mainAudio.pause();
+        mainAudio.currentTime = 0;
+    }).catch(e => console.log("Audio unlock failed", e));
+    
+    triggerAudio.play().then(() => {
+        triggerAudio.pause();
+    }).catch(e => console.log("Trigger unlock failed", e));
+
+    socket.emit('getLatestCommand'); // In case we joined late
     updateStatus();
 });
 
-// Update status every second
-setInterval(updateStatus, 1000);
+// Helper: Resume Stem with Time Sync
+function resumeStemIfShould() {
+    if (stemPlaying && !triggerPlaying) {
+        // Calculate time skipped
+        if (triggerStartTime > 0) {
+            const durationPaused = (Date.now() - triggerStartTime) / 1000;
+            mainAudio.currentTime += durationPaused;
+            triggerStartTime = 0; // Reset
+        }
+        mainAudio.play().catch(e => console.error("Stem resume failed", e));
+    }
+}
 
-// Socket events
-socket.on('playAudio', function(data) {
-    handlePlayAudio(data);
-});
+// Helper: Update Status UI & Server
+function updateStatus() {
+    let text = `Group: ${audioTrack}`;
+    let statusObj = {
+        track: audioTrack,
+        state: 'idle',
+        file: '',
+        time: 0,
+        duration: 0
+    };
 
-socket.on('pauseAudio', function() {
-    handlePauseAudio();
-});
-
-socket.on('playEndingTrack', function(data) {
-    handlePlayEndingTrack(data);
-});
-
-socket.on('playLastHumanTrack', function(data) {
-    handlePlayLastHumanTrack(data);
-});
-
-socket.on('playLoopTrack', function(data) {
-    handlePlayLoopTrack(data);
-});
-
-socket.on('returnFromLoop', function(data) {
-    handleReturnFromLoop(data);
-});
-
-socket.on('restart', function() {
-    console.log('Experience restarted');
+    if (triggerPlaying) {
+        text += ` | Playing ${currentTriggerFile}`;
+        statusObj.state = 'trigger';
+        statusObj.file = currentTriggerFile;
+        statusObj.time = triggerAudio.currentTime;
+        statusObj.duration = triggerAudio.duration;
+    } else if (stemPlaying && !mainAudio.paused) {
+        text += ` | Playing Stem`;
+        statusObj.state = 'stem';
+        statusObj.file = `track${audioTrack}.mp3`;
+        statusObj.time = mainAudio.currentTime;
+        statusObj.duration = mainAudio.duration;
+    } else {
+        text += ` | Waiting/Paused`;
+        statusObj.state = 'paused';
+    }
     
-    mainAudio.pause();
-    endingAudio.pause();
-    loopAudio.pause();
-    lastHumanAudio.pause();
+    audioStatus.textContent = text;
+    audioStatus.style.display = 'block';
+    
+    // Console log current playing track if any
+    if (statusObj.file && (statusObj.state === 'trigger' || statusObj.state === 'stem')) {
+        console.log(`Currently Playing: ${statusObj.file}`);
+    }
+
+    // Send to server (throttled or on change)
+    socket.emit('reportStatus', statusObj);
+}
+
+// Heartbeat to update time
+setInterval(() => {
+    if (stemPlaying || triggerPlaying) {
+        updateStatus();
+    }
+}, 2000); // Every 2 seconds to avoid spamming too much
+
+// Socket Events
+
+// 1. Set Group (e.g. after sort)
+socket.on('setGroup', (data) => {
+    console.log("Group updated to", data.group);
+    audioTrack = data.group.toString();
+    
+    // Update Cookie for persistence on refresh
+    setCookie('audioTrack', audioTrack, 7);
+
+    // Reload main audio source
+    const wasPlaying = !mainAudio.paused;
+    const currentTime = mainAudio.currentTime;
+    
+    mainAudio.src = `/audio/track${audioTrack}.mp3`;
+    mainAudio.currentTime = currentTime; 
+    
+    if (wasPlaying) {
+        mainAudio.play().catch(e => console.error(e));
+    }
     
     updateStatus();
-    
-    // Clear the audioTrack cookie when experience restarts
-    deleteCookie('audioTrack');
-    
-    // Don't show the start button again after restart
-    // The page will reload due to clearTrackCookie event
 });
 
-socket.on('clearTrackCookie', function() {
-    console.log('Clearing track cookie');
-    deleteCookie('audioTrack');
+// 2. Play Stem (Global Start)
+socket.on('playStem', (data) => {
+    console.log("Play Stem", data);
+    stemPlaying = true;
     
-    // Force reload to ensure we get a new track assignment
-    setTimeout(() => {
-        window.location.reload();
-    }, 100);
+    // Always sync time first
+    if (data.startAt !== undefined) {
+         mainAudio.currentTime = data.startAt;
+    }
+    
+    if (triggerPlaying) {
+        // If interrupted, just reset the anchor time so when we resume we add the delta from NOW.
+        triggerStartTime = Date.now();
+    } else {
+        mainAudio.play().catch(e => console.error("Play stem failed", e));
+    }
+    updateStatus();
 });
+
+// 3. Pause Stem (Global Pause)
+socket.on('pauseStem', () => {
+    console.log("Pause Stem");
+    stemPlaying = false;
+    mainAudio.pause();
+    updateStatus();
+});
+
+// 4. Play Trigger (Interruption)
+socket.on('playTrigger', (data) => {
+    console.log("Play Trigger", data.filename, "Last Clip:", data.isLastClip);
+    if (!userInteracted) return;
+
+    // Pause stem if playing
+    if (!mainAudio.paused) {
+        mainAudio.pause();
+    }
+    
+    triggerAudio.src = `/audio/${data.filename}`;
+    currentTriggerFile = data.filename;
+    isLastClip = !!data.isLastClip;
+    triggerPlaying = true;
+    triggerAudio.currentTime = 0;
+
+    if (isLastClip) {
+        stemPlaying = false; // Kill stem logic immediately
+        triggerStartTime = 0;
+    } else {
+        // Only track time if we plan to resume
+        triggerStartTime = Date.now();
+    }
+    
+    triggerAudio.play().catch(e => console.error("Play trigger failed", e));
+    updateStatus();
+});
+
+// 5. Stop Trigger (Stop Audio Button)
+socket.on('stopTrigger', () => {
+    console.log("Stop Trigger");
+    triggerAudio.pause();
+    triggerAudio.currentTime = 0;
+    triggerPlaying = false;
+    currentTriggerFile = '';
+    
+    // If it was a last clip, stemPlaying is already false.
+    // If it was normal, stemPlaying is true.
+    // resumeStemIfShould will handle it.
+    
+    resumeStemIfShould();
+    isLastClip = false; // Reset flag
+    updateStatus();
+});
+
+// 6. Reset Client
+socket.on('resetClient', () => {
+    console.log("Resetting client state");
+    stemPlaying = false;
+    triggerPlaying = false;
+    mainAudio.pause();
+    mainAudio.currentTime = 0;
+    triggerAudio.pause();
+    triggerAudio.currentTime = 0;
+    currentTriggerFile = '';
+    triggerStartTime = 0;
+    isLastClip = false;
+    updateStatus();
+});
+
+// 7. Periodic Sync
+socket.on('sync', (data) => {
+    // If we are supposed to be playing the stem (and not interrupted by trigger)
+    if (stemPlaying && !triggerPlaying) {
+        const drift = Math.abs(mainAudio.currentTime - data.elapsedTime);
+        // If drift is significant (> 0.5s), snap to server time
+        if (drift > 0.5) {
+            console.log(`Syncing: Correction of ${drift.toFixed(3)}s`);
+            mainAudio.currentTime = data.elapsedTime;
+            // Ensure it's playing
+            if (mainAudio.paused) mainAudio.play().catch(e => {});
+        }
+    } else if (stemPlaying && triggerPlaying) {
+        // If we are interrupted, we just update our 'resume' target indirectly
+        // Actually, simpler: when we eventually resume, we want to resume at 'server elapsed time'
+        // + whatever time passes from now until then.
+        // But 'resumeStemIfShould' uses 'currentTime += delta'.
+        // If 'currentTime' is drifting in background (it shouldn't if paused),
+        // we might be better off snapping to this sync time (while paused).
+        // Updating currentTime while paused is safe and doesn't start playback.
+        
+        // However, 'elapsedTime' is NOW.
+        // 'triggerStartTime' is when we paused.
+        // We want the audio to 'seek' to NOW, but stay paused?
+        // NO. We want the audio to conceptually 'play in background'.
+        // So if we update mainAudio.currentTime to data.elapsedTime, we are effectively
+        // doing exactly what we want: keeping the 'needle' moving.
+        mainAudio.currentTime = data.elapsedTime;
+        triggerStartTime = Date.now(); // Reset our local delta tracking since we just synced to absolute
+    }
+});
+
+// Initial Status
+updateStatus();

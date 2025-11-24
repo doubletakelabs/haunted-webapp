@@ -3,323 +3,229 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Last Human Admin</title>
+    <title>Last Human Controller</title>
     <style>
         body {
-            font-family: Arial, sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
             padding: 20px;
-            background-color: #f5f5f5;
-            color: #333;
+            background-color: #e0e0e0;
+            height: 100vh;
+            box-sizing: border-box;
         }
         
-        h1 {
-            color: #222;
-            border-bottom: 2px solid #ddd;
-            padding-bottom: 10px;
-        }
-        
-        .admin-container {
+        .container {
             display: flex;
-            flex-wrap: wrap;
+            height: 100%;
             gap: 20px;
         }
         
-        .control-panel, .status-panel, .user-panel, .audio-timer-panel {
-            background-color: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            padding: 20px;
-            margin-bottom: 20px;
+        .column {
+            background: white;
+            border: 2px solid #000;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
         }
-        
-        .control-panel {
-            flex: 1;
+
+        .col-left {
+            flex: 2;
             min-width: 300px;
         }
-        
-        .status-panel {
-            flex: 2;
-            min-width: 400px;
-        }
-        
-        .user-panel {
-            flex: 2;
-            min-width: 400px;
-        }
-        
-        .audio-timer-panel {
+
+        .col-center {
             flex: 1;
+            min-width: 200px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            align-items: center;
+        }
+
+        .col-right {
+            flex: 2;
             min-width: 300px;
         }
-        
-        .control-section {
-            margin-bottom: 20px;
-            padding-bottom: 20px;
-            border-bottom: 1px solid #eee;
-        }
-        
-        .control-section:last-child {
-            border-bottom: none;
-            margin-bottom: 0;
-            padding-bottom: 0;
-        }
-        
+
         h2 {
             margin-top: 0;
-            color: #444;
+            border-bottom: 2px solid #000;
+            padding-bottom: 10px;
+            text-transform: uppercase;
             font-size: 1.2rem;
         }
-        
-        button {
-            background-color: #4a4a4a;
-            color: white;
-            border: none;
-            padding: 10px 15px;
-            margin: 5px;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 14px;
-            transition: background-color 0.3s;
-        }
-        
-        button:hover {
-            background-color: #333;
-        }
-        
-        #playBtn {
-            background-color: #4CAF50;
-        }
-        
-        #playBtn:hover {
-            background-color: #3e8e41;
-        }
-        
-        #pauseBtn {
-            background-color: #f44336;
-        }
-        
-        #pauseBtn:hover {
-            background-color: #d32f2f;
-        }
-        
-        #restartBtn {
-            background-color: #2196F3;
-        }
-        
-        #restartBtn:hover {
-            background-color: #0b7dda;
-        }
-        
-        #endingTrackBtn {
-            background-color: #9c27b0;
-        }
-        
-        #endingTrackBtn:hover {
-            background-color: #7b1fa2;
-        }
-        
-        #loopTrackBtn {
-            background-color: #ff9800;
-        }
-        
-        #loopTrackBtn:hover {
-            background-color: #f57c00;
-        }
-        
-        #returnFromLoopBtn {
-            background-color: #607d8b;
-        }
-        
-        #returnFromLoopBtn:hover {
-            background-color: #455a64;
-        }
-        
-        #statusInfo {
-            height: 300px;
-            overflow-y: auto;
-            background-color: #f9f9f9;
+
+        /* User/Group Styles */
+        .group-container {
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
             padding: 10px;
-            border-radius: 4px;
-            border: 1px solid #ddd;
-            font-family: monospace;
-            white-space: pre-wrap;
-            font-size: 12px;
         }
-        
-        /* User list styles */
-        .user-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 20px;
-            font-size: 14px;
-        }
-        
-        .user-table th, .user-table td {
-            padding: 10px;
-            text-align: left;
-            border-bottom: 1px solid #ddd;
-        }
-        
-        .user-table th {
-            background-color: #f2f2f2;
-            font-weight: bold;
-        }
-        
-        .user-table tr:hover {
-            background-color: #f5f5f5;
-        }
-        
-        .track-1 {
-            color: #2196F3;
-            font-weight: bold;
-        }
-        
-        .track-2 {
-            color: #9c27b0;
-            font-weight: bold;
-        }
-        
-        .track-3 {
-            color: #ff9800;
-            font-weight: bold;
-        }
-        
-        .track-4 {
-            color: #4caf50;
-            font-weight: bold;
-        }
-        
-        .status-connected {
-            color: #4CAF50;
-        }
-        
-        .empty-message {
-            text-align: center;
-            color: #999;
-            padding: 20px;
-        }
-        
-        .user-summary {
-            background-color: #f9f9f9;
-            padding: 10px 15px;
-            border-radius: 4px;
-            border: 1px solid #ddd;
-            margin-top: 10px;
-        }
-        
-        .user-summary p {
-            margin: 5px 0;
-        }
-        
-        /* Audio timer styles */
-        .timer-container {
-            margin-bottom: 20px;
-            padding: 15px;
-            background-color: #f9f9f9;
-            border-radius: 4px;
-            border: 1px solid #ddd;
-        }
-        
-        .timer-label {
+
+        .group-header {
             font-weight: bold;
             margin-bottom: 5px;
-            color: #444;
+            display: flex;
+            align-items: center;
+            background: #eee;
+            padding: 5px;
+            cursor: pointer;
+        }
+
+        .user-item {
+            padding: 5px;
+            margin: 2px 0;
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9rem;
+        }
+
+        .user-item:hover {
+            background: #f0f0f0;
+        }
+
+        .user-item.selected, .group-header.selected {
+            background-color: #b3d9ff;
+            border-color: #66b3ff;
         }
         
-        .timer-time {
-            font-family: monospace;
-            font-size: 16px;
-            margin-bottom: 8px;
+        .user-status {
+            font-size: 0.8rem;
+            color: #666;
+        }
+
+        /* Audio File Styles */
+        .audio-item {
+            padding: 10px;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+        }
+
+        .audio-item:hover {
+            background: #f5f5f5;
+        }
+
+        .audio-item.selected {
+            background-color: #b3d9ff;
+        }
+
+        /* Controls */
+        button {
+            width: 100%;
+            padding: 15px;
+            font-size: 1rem;
+            font-weight: bold;
+            border: 2px solid #000;
+            background: white;
+            cursor: pointer;
+            text-transform: uppercase;
+            transition: all 0.1s;
+        }
+
+        button:hover {
+            background: #eee;
+        }
+
+        button:active {
+            transform: translateY(2px);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-primary {
+            border-width: 3px;
+        }
+
+        /* Drag and Drop visual cues */
+        .group-users {
+            min-height: 30px;
         }
         
-        .timer-progress {
-            height: 10px;
-            background-color: #ddd;
-            border-radius: 5px;
-            overflow: hidden;
+        .dragging {
+            opacity: 0.5;
+        }
+
+        .checkbox {
+            margin-right: 10px;
+            width: 20px;
+            height: 20px;
         }
         
-        .timer-bar {
-            height: 100%;
-            background-color: #4CAF50;
-            width: 0%;
-            transition: width 1s linear;
-        }
-        
-        #mainTrackTimer .timer-bar {
-            background-color: #2196F3;
-        }
-        
-        #endingTrackTimer .timer-bar {
-            background-color: #9c27b0;
+        #selectAllWrapper {
+            margin-top: auto;
+            padding-top: 10px;
+            border-top: 2px solid #000;
         }
     </style>
 </head>
 <body>
-    <h1>Last Human Admin Panel</h1>
-    
-    <div class="admin-container">
-        <div class="control-panel">
-            <div class="control-section">
-                <h2>Experience Control</h2>
-                <button id="restartBtn">Restart Experience</button>
+    <div class="container">
+        <!-- Left Column: Users & Groups -->
+        <div class="column col-left">
+            <h2>Groups</h2>
+            <div id="groupsContainer">
+                <!-- Groups 1-6 will be generated here -->
             </div>
             
-            <div class="control-section">
-                <h2>Track Management</h2>
-                <a href="/upload" style="display: inline-block; background-color: #ff9800; color: white; text-decoration: none; padding: 10px 15px; border-radius: 4px; margin: 5px; transition: background-color 0.3s;" onmouseover="this.style.backgroundColor='#f57c00'" onmouseout="this.style.backgroundColor='#ff9800'">Upload New Track</a>
-            </div>
-            
-            <div class="control-section">
-                <h2>Audio Control</h2>
-                <button id="playBtn">Play All Audio</button>
-                <button id="pauseBtn">Stop All Audio</button>
-                <button id="endingTrackBtn">Play Ending Track/Choose Last Human</button>
-            </div>
-            
-            <div class="control-section">
-                <h2>Loop Track Control</h2>
-                <button id="loopTrackBtn">Push to Loop Track</button>
-                <button id="returnFromLoopBtn">Return to Original Track</button>
-            </div>
-            
-            <div class="audio-timer-panel">
-                <h2>Audio Playback</h2>
-                <div id="audioTimerContainer">
-                    <div id="mainTrackTimer" class="timer-container">
-                        <div class="timer-label">Main Tracks:</div>
-                        <div class="timer-time">00:00 / 00:00</div>
-                        <div class="timer-progress">
-                            <div class="timer-bar"></div>
-                        </div>
-                    </div>
-                    
-                    <div id="endingTrackTimer" class="timer-container">
-                        <div class="timer-label">Ending Track:</div>
-                        <div class="timer-time">00:00 / 00:00</div>
-                        <div class="timer-progress">
-                            <div class="timer-bar"></div>
-                        </div>
-                    </div>
-                </div>
+            <div id="selectAllWrapper">
+                <label style="display: flex; align-items: center; font-weight: bold; font-size: 1.1rem;">
+                    <input type="checkbox" class="checkbox" id="selectAllBtn"> Select All Players
+                </label>
             </div>
         </div>
-        
-        <div class="status-panel">
-            <h2>Status Information</h2>
-            <div id="statusInfo"></div>
+
+        <!-- Center Column: Controls -->
+        <div class="column col-center">
+            <h2>Controls</h2>
+            
+            <div style="width: 100%; margin-bottom: 20px; border-bottom: 2px solid #ccc; padding-bottom: 20px;">
+                <button id="playStemBtn" style="background: #d4edda; margin-bottom: 10px;">START STEMS</button>
+                <button id="pauseStemBtn" style="background: #fff3cd;">PAUSE STEMS</button>
+            </div>
+
+            <button id="sortPlayersBtn">Sort Players</button>
+            <button id="resetExperienceBtn" style="background: #d1ecf1; margin-top: 10px;">Reset Experience</button>
+            
+            <div style="height: 20px;"></div>
+            
+            <button id="applyAudioBtn" disabled>APPLY AUDIO</button>
+            <button id="stopAudioBtn" disabled style="background: #f8d7da;">STOP AUDIO</button>
+
+            <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #ccc;">
+                <label style="display: flex; align-items: center; cursor: pointer;">
+                    <input type="checkbox" id="isLastClip" class="checkbox">
+                    <strong>Last Clip (Do not resume stem)</strong>
+                </label>
+            </div>
         </div>
-        
-        <div class="user-panel">
-            <h2>Connected Users</h2>
-            <div id="userListContainer">
-                <!-- User list will be populated here -->
+
+        <!-- Right Column: Audio Files -->
+        <div class="column col-right">
+            <h2>Audio Files</h2>
+            <div id="audioList">
+                <!-- Audio files will be generated here -->
+            </div>
+            <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid #ccc;">
+                <h3>Upload</h3>
+                <form action="/upload" method="post" enctype="multipart/form-data">
+                    <input type="file" name="audioFile" accept="audio/*" required>
+                    <button type="submit" style="margin-top: 5px; padding: 5px;">Upload</button>
+                </form>
             </div>
         </div>
     </div>
-    
+
     <script src="/socket.io/socket.io.js"></script>
     <script src="/js/admin.js"></script>
 </body>
-</html> 
+</html>

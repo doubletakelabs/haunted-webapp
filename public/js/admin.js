@@ -1,395 +1,273 @@
-// Connect to socket.io with admin client identifier
 const socket = io({
-    query: {
-        client: 'admin'
-    }
+    query: { client: 'admin' }
 });
 
-// DOM elements
-const playBtn = document.getElementById('playBtn');
-const pauseBtn = document.getElementById('pauseBtn');
-const restartBtn = document.getElementById('restartBtn');
-const endingTrackBtn = document.getElementById('endingTrackBtn');
-const loopTrackBtn = document.getElementById('loopTrackBtn');
-const returnFromLoopBtn = document.getElementById('returnFromLoopBtn');
-const statusInfo = document.getElementById('statusInfo');
-const userListContainer = document.getElementById('userListContainer');
-const audioTimerContainer = document.getElementById('audioTimerContainer');
-const mainTrackTimer = document.getElementById('mainTrackTimer');
-const endingTrackTimer = document.getElementById('endingTrackTimer');
+// State
+let users = {}; // { socketId: { ... } }
+let audioFiles = [];
+let selectedUsers = new Set(); // Set of socketIds
+let selectedAudio = null; // Filename
 
-// Audio state
-let isPlaying = false;
-let isEndingPlaying = false;
-let isLoopPlaying = false;
-let playbackStartTime = null;
-let endingStartTime = null;
-let loopStartTime = null;
-let pausedTime = null;
-let timerInterval = null;
+// DOM Elements
+const groupsContainer = document.getElementById('groupsContainer');
+const audioList = document.getElementById('audioList');
+const applyAudioBtn = document.getElementById('applyAudioBtn');
+const stopAudioBtn = document.getElementById('stopAudioBtn');
+const sortPlayersBtn = document.getElementById('sortPlayersBtn');
+const selectAllBtn = document.getElementById('selectAllBtn');
+const playStemBtn = document.getElementById('playStemBtn');
+const pauseStemBtn = document.getElementById('pauseStemBtn');
+const resetExperienceBtn = document.getElementById('resetExperienceBtn');
+const isLastClipCheckbox = document.getElementById('isLastClip');
 
-// Audio durations (in seconds) - these will be updated when audio metadata is loaded
-let mainTrackDurations = {
-    track1: 0,
-    track2: 0,
-    track3: 0,
-    track4: 0
-};
-let endingTrackDuration = 0;
-let loopTrackDuration = 0;
-
-// Create hidden audio elements to get durations
-const hiddenAudio1 = new Audio('/audio/track1.mp3');
-const hiddenAudio2 = new Audio('/audio/track2.mp3');
-const hiddenAudio3 = new Audio('/audio/track3.mp3');
-const hiddenAudio4 = new Audio('/audio/track4.mp3');
-const hiddenEndingAudio = new Audio('/audio/end.mp3');
-const hiddenLoopAudio = new Audio('/audio/loop.mp3');
-
-// Load audio metadata to get durations
-hiddenAudio1.addEventListener('loadedmetadata', () => {
-    mainTrackDurations.track1 = hiddenAudio1.duration;
-    updateTimerDisplay();
-    log('Track 1 duration loaded: ' + formatTime(mainTrackDurations.track1));
-});
-
-hiddenAudio2.addEventListener('loadedmetadata', () => {
-    mainTrackDurations.track2 = hiddenAudio2.duration;
-    updateTimerDisplay();
-    log('Track 2 duration loaded: ' + formatTime(mainTrackDurations.track2));
-});
-
-hiddenAudio3.addEventListener('loadedmetadata', () => {
-    mainTrackDurations.track3 = hiddenAudio3.duration;
-    updateTimerDisplay();
-    log('Track 3 duration loaded: ' + formatTime(mainTrackDurations.track3));
-});
-
-hiddenAudio4.addEventListener('loadedmetadata', () => {
-    mainTrackDurations.track4 = hiddenAudio4.duration;
-    updateTimerDisplay();
-    log('Track 4 duration loaded: ' + formatTime(mainTrackDurations.track4));
-});
-
-hiddenEndingAudio.addEventListener('loadedmetadata', () => {
-    endingTrackDuration = hiddenEndingAudio.duration;
-    updateTimerDisplay();
-    log('Ending track duration loaded: ' + formatTime(endingTrackDuration));
-});
-
-hiddenLoopAudio.addEventListener('loadedmetadata', () => {
-    loopTrackDuration = hiddenLoopAudio.duration;
-    updateTimerDisplay();
-    log('Loop track duration loaded: ' + formatTime(loopTrackDuration));
-});
-
-// Format time in seconds to MM:SS format
-function formatTime(seconds) {
-    if (isNaN(seconds) || seconds === Infinity) return '00:00';
-    
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = Math.floor(seconds % 60);
-    
-    return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
-}
-
-// Update timer display
-function updateTimerDisplay() {
-    const currentTime = Date.now();
-    let elapsedMainTime = 0;
-    let elapsedEndingTime = 0;
-    let elapsedLoopTime = 0;
-    
-    if (isPlaying && playbackStartTime) {
-        elapsedMainTime = (currentTime - playbackStartTime) / 1000;
-    }
-    
-    if (isEndingPlaying && endingStartTime) {
-        elapsedEndingTime = (currentTime - endingStartTime) / 1000;
-    }
-    
-    if (isLoopPlaying && loopStartTime) {
-        elapsedLoopTime = (currentTime - loopStartTime) / 1000;
-    }
-    
-    // Calculate average duration for main tracks
-    const avgMainDuration = (mainTrackDurations.track1 + mainTrackDurations.track2 + mainTrackDurations.track3 + mainTrackDurations.track4) / 4;
-    
-    // Update main track timer - show paused time when in loop mode
-    let mainTrackStatus = '';
-    let mainTrackTime = elapsedMainTime;
-    
-    if (isLoopPlaying && pausedTime !== null) {
-        mainTrackStatus = ' (Paused at)';
-        mainTrackTime = pausedTime;
-    } else if (isLoopPlaying) {
-        mainTrackStatus = ' (Paused)';
-        mainTrackTime = 0;
-    }
-    
-    mainTrackTimer.innerHTML = `
-        <div class="timer-label">Main Tracks${mainTrackStatus}:</div>
-        <div class="timer-time">${formatTime(mainTrackTime)} / ${formatTime(avgMainDuration)}</div>
-        <div class="timer-progress">
-            <div class="timer-bar" style="width: ${Math.min(100, (mainTrackTime / avgMainDuration) * 100)}%"></div>
-        </div>
-    `;
-    
-    // Update ending track timer
-    endingTrackTimer.innerHTML = `
-        <div class="timer-label">Ending Track:</div>
-        <div class="timer-time">${formatTime(elapsedEndingTime)} / ${formatTime(endingTrackDuration)}</div>
-        <div class="timer-progress">
-            <div class="timer-bar" style="width: ${Math.min(100, (elapsedEndingTime / endingTrackDuration) * 100)}%"></div>
-        </div>
-    `;
-    
-    // Update timer container visibility
-    if (isPlaying || isEndingPlaying || isLoopPlaying) {
-        audioTimerContainer.style.display = 'block';
-    } else {
-        audioTimerContainer.style.display = 'block'; // Keep visible but show 00:00
+// Initialize Groups
+function initGroups() {
+    groupsContainer.innerHTML = '';
+    for (let i = 1; i <= 6; i++) {
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'group-container';
+        groupDiv.dataset.groupId = i;
+        groupDiv.innerHTML = `
+            <div class="group-header" onclick="toggleGroupSelection(${i})">
+                <input type="checkbox" class="checkbox group-checkbox" data-group="${i}">
+                GROUP ${i}
+            </div>
+            <div class="group-users" id="group-${i}-users" ondrop="drop(event)" ondragover="allowDrop(event)"></div>
+        `;
+        groupsContainer.appendChild(groupDiv);
     }
 }
 
-// Start timer update interval
-function startTimerInterval() {
-    if (timerInterval) clearInterval(timerInterval);
-    timerInterval = setInterval(updateTimerDisplay, 1000);
+// Drag and Drop Functions
+window.allowDrop = function(ev) {
+    ev.preventDefault();
 }
 
-// Stop timer update interval
-function stopTimerInterval() {
-    if (timerInterval) {
-        clearInterval(timerInterval);
-        timerInterval = null;
-    }
+window.drag = function(ev) {
+    ev.dataTransfer.setData("text/plain", ev.target.dataset.socketId);
+    ev.target.classList.add('dragging');
 }
 
-// Log function
-function log(message) {
-    const timestamp = new Date().toLocaleTimeString();
-    statusInfo.innerHTML = `[${timestamp}] ${message}\n` + statusInfo.innerHTML;
-}
-
-// Update user list display
-function updateUserList(users) {
-    // Clear current list
-    userListContainer.innerHTML = '';
+window.drop = function(ev) {
+    ev.preventDefault();
+    const socketId = ev.dataTransfer.getData("text/plain");
+    const target = ev.target.closest('.group-users');
     
-    // Create table header
-    const table = document.createElement('table');
-    table.className = 'user-table';
-    
-    const thead = document.createElement('thead');
-    const headerRow = document.createElement('tr');
-    
-    const headers = ['User ID', 'Track', 'Connected At', 'Status'];
-    headers.forEach(headerText => {
-        const th = document.createElement('th');
-        th.textContent = headerText;
-        headerRow.appendChild(th);
-    });
-    
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
-    
-    // Create table body
-    const tbody = document.createElement('tbody');
-    
-    // Count users by track
-    let track1Count = 0;
-    let track2Count = 0;
-    let track3Count = 0;
-    let track4Count = 0;
-    
-    // Add user rows
-    if (Object.keys(users).length === 0) {
-        const emptyRow = document.createElement('tr');
-        const emptyCell = document.createElement('td');
-        emptyCell.colSpan = 4;
-        emptyCell.textContent = 'No users connected';
-        emptyCell.className = 'empty-message';
-        emptyRow.appendChild(emptyCell);
-        tbody.appendChild(emptyRow);
-    } else {
-        Object.values(users).forEach(user => {
-            const row = document.createElement('tr');
-            
-            // User ID cell
-            const idCell = document.createElement('td');
-            idCell.textContent = user.id.substring(0, 8) + '...'; // Truncate for display
-            row.appendChild(idCell);
-            
-            // Track cell
-            const trackCell = document.createElement('td');
-            trackCell.textContent = user.track;
-            trackCell.className = `track-${user.track}`;
-            row.appendChild(trackCell);
-            
-            // Count tracks
-            if (user.track === '1') track1Count++;
-            if (user.track === '2') track2Count++;
-            if (user.track === '3') track3Count++;
-            if (user.track === '4') track4Count++;
-            
-            // Connected At cell
-            const timeCell = document.createElement('td');
-            timeCell.textContent = user.connectedAt;
-            row.appendChild(timeCell);
-            
-            // Status cell
-            const statusCell = document.createElement('td');
-            statusCell.textContent = 'Connected';
-            statusCell.className = 'status-connected';
-            row.appendChild(statusCell);
-            
-            tbody.appendChild(row);
+    if (target && socketId) {
+        const newGroupId = target.parentElement.dataset.groupId;
+        console.log(`Moving ${socketId} to Group ${newGroupId}`);
+        
+        socket.emit('updateUserGroup', {
+            socketId: socketId,
+            group: newGroupId
         });
     }
     
-    table.appendChild(tbody);
-    userListContainer.appendChild(table);
-    
-    // Add summary
-    const summary = document.createElement('div');
-    summary.className = 'user-summary';
-    summary.innerHTML = `
-        <p>Total connected: <strong>${Object.keys(users).length}</strong></p>
-        <p>Track 1: <strong>${track1Count}</strong> users</p>
-        <p>Track 2: <strong>${track2Count}</strong> users</p>
-        <p>Track 3: <strong>${track3Count}</strong> users</p>
-        <p>Track 4: <strong>${track4Count}</strong> users</p>
-    `;
-    userListContainer.appendChild(summary);
+    // Cleanup visual state
+    const draggedEl = document.querySelector(`.user-item[data-socket-id="${socketId}"]`);
+    if (draggedEl) draggedEl.classList.remove('dragging');
 }
 
-// Event listeners
-playBtn.addEventListener('click', () => {
-    socket.emit('playAudio');
-    isPlaying = true;
-    isEndingPlaying = false;
-    playbackStartTime = Date.now();
-    endingStartTime = null;
-    startTimerInterval();
-    log('Sent play command to all clients');
-    updateTimerDisplay();
-});
 
-pauseBtn.addEventListener('click', () => {
-    socket.emit('pauseAudio');
-    isPlaying = false;
-    isEndingPlaying = false;
-    log('Sent pause command to all clients');
-    updateTimerDisplay();
-});
+// Render Users
+function renderUsers() {
+    // Clear all group lists
+    for (let i = 1; i <= 6; i++) {
+        const el = document.getElementById(`group-${i}-users`);
+        if (el) el.innerHTML = '';
+    }
 
-restartBtn.addEventListener('click', () => {
-    socket.emit('restart');
-    isPlaying = false;
-    isEndingPlaying = false;
-    playbackStartTime = null;
-    endingStartTime = null;
-    log('Restarted experience for all clients');
-    updateTimerDisplay();
-});
+    Object.values(users).forEach(user => {
+        const groupId = user.track || 1; // Default to 1 if missing
+        const container = document.getElementById(`group-${groupId}-users`);
+        
+        if (container) {
+            const userDiv = document.createElement('div');
+            userDiv.className = `user-item ${selectedUsers.has(user.socketId) ? 'selected' : ''}`;
+            userDiv.draggable = true;
+            userDiv.dataset.socketId = user.socketId;
+            userDiv.ondragstart = window.drag;
+            userDiv.onclick = (e) => {
+                e.stopPropagation();
+                toggleUserSelection(user.socketId);
+            };
 
-endingTrackBtn.addEventListener('click', () => {
-    socket.emit('playEndingTrack');
-    isPlaying = false;
-    isEndingPlaying = true;
-    isLoopPlaying = false;
-    playbackStartTime = null;
-    endingStartTime = Date.now();
-    loopStartTime = null;
-    startTimerInterval();
-    log('Playing ending track for all clients');
-    updateTimerDisplay();
-});
+            const isSelected = selectedUsers.has(user.socketId);
+            
+            userDiv.innerHTML = `
+                <div style="display:flex; align-items:center;">
+                    <input type="checkbox" class="checkbox" ${isSelected ? 'checked' : ''} pointer-events="none">
+                    <div>
+                        <div>User ${user.id.substring(0, 6)}</div>
+                        <div class="user-status">Online</div>
+                    </div>
+                </div>
+            `;
+            container.appendChild(userDiv);
+        }
+    });
+    updateButtons();
+}
 
-loopTrackBtn.addEventListener('click', () => {
-    socket.emit('playLoopTrack');
-    isPlaying = false;
-    isEndingPlaying = false;
-    isLoopPlaying = true;
-    playbackStartTime = null;
-    endingStartTime = null;
-    loopStartTime = Date.now();
-    startTimerInterval();
-    log('Pushing all clients to loop track');
-    updateTimerDisplay();
-});
+// Render Audio Files
+function renderAudioFiles() {
+    audioList.innerHTML = '';
+    audioFiles.forEach(file => {
+        const div = document.createElement('div');
+        div.className = `audio-item ${selectedAudio === file ? 'selected' : ''}`;
+        div.onclick = () => selectAudio(file);
+        div.innerHTML = `
+            <input type="checkbox" class="checkbox" ${selectedAudio === file ? 'checked' : ''}>
+            ${file}
+        `;
+        audioList.appendChild(div);
+    });
+}
 
-returnFromLoopBtn.addEventListener('click', () => {
-    socket.emit('returnFromLoop');
-    isPlaying = true;
-    isEndingPlaying = false;
-    isLoopPlaying = false;
-    playbackStartTime = Date.now();
-    endingStartTime = null;
-    loopStartTime = null;
-    startTimerInterval();
-    log('Returning all clients to original tracks');
-    updateTimerDisplay();
-});
+// Selection Logic
+function toggleUserSelection(socketId) {
+    if (selectedUsers.has(socketId)) {
+        selectedUsers.delete(socketId);
+    } else {
+        selectedUsers.add(socketId);
+    }
+    renderUsers();
+    checkSelectAllState();
+}
 
-// Socket events
+function toggleGroupSelection(groupId) {
+    // Find all users in this group
+    const groupUsers = Object.values(users).filter(u => u.track == groupId);
+    const allSelected = groupUsers.every(u => selectedUsers.has(u.socketId));
+    
+    groupUsers.forEach(u => {
+        if (allSelected) {
+            selectedUsers.delete(u.socketId);
+        } else {
+            selectedUsers.add(u.socketId);
+        }
+    });
+    renderUsers();
+    checkSelectAllState();
+}
+
+function selectAudio(filename) {
+    if (selectedAudio === filename) {
+        selectedAudio = null;
+    } else {
+        selectedAudio = filename;
+    }
+    renderAudioFiles();
+    updateButtons();
+}
+
+function checkSelectAllState() {
+    const allUserIds = Object.keys(users);
+    if (allUserIds.length > 0 && allUserIds.every(id => selectedUsers.has(id))) {
+        selectAllBtn.checked = true;
+    } else {
+        selectAllBtn.checked = false;
+    }
+}
+
+selectAllBtn.onclick = () => {
+    if (selectAllBtn.checked) {
+        Object.keys(users).forEach(id => selectedUsers.add(id));
+    } else {
+        selectedUsers.clear();
+    }
+    renderUsers();
+    updateButtons();
+};
+
+function updateButtons() {
+    const hasUsers = selectedUsers.size > 0;
+    const hasAudio = selectedAudio !== null;
+    
+    applyAudioBtn.disabled = !(hasUsers && hasAudio);
+    stopAudioBtn.disabled = !hasUsers;
+}
+
+// Button Handlers
+applyAudioBtn.onclick = () => {
+    if (selectedUsers.size > 0 && selectedAudio) {
+        socket.emit('applyAudio', {
+            targets: Array.from(selectedUsers),
+            filename: selectedAudio,
+            isLastClip: isLastClipCheckbox.checked
+        });
+        
+        // Uncheck after sending if it was checked? Or keep it?
+        // User might want to send multiple last clips. Keep it.
+    }
+};
+
+stopAudioBtn.onclick = () => {
+    if (selectedUsers.size > 0) {
+        socket.emit('stopAudio', {
+            targets: Array.from(selectedUsers)
+        });
+    }
+};
+
+sortPlayersBtn.onclick = () => {
+    if(confirm("Are you sure you want to shuffle and sort all players evenly?")) {
+        socket.emit('sortPlayers');
+    }
+};
+
+playStemBtn.onclick = () => {
+    socket.emit('playStem');
+};
+
+pauseStemBtn.onclick = () => {
+    socket.emit('pauseStem');
+};
+
+resetExperienceBtn.onclick = () => {
+    if (confirm("Are you sure you want to RESET the entire experience? This will stop all audio and reset state.")) {
+        socket.emit('resetExperience');
+    }
+};
+
+
+// Socket Events
 socket.on('connect', () => {
-    log('Connected to server');
-    startTimerInterval(); // Start the timer interval when connected
+    initGroups();
 });
 
-socket.on('disconnect', () => {
-    log('Disconnected from server');
-    stopTimerInterval(); // Stop the timer interval when disconnected
+socket.on('userList', (data) => {
+    // Merge updates if we have them? Or just replace.
+    // Replacing is safer for full sync.
+    // We need to preserve local selection state though, which renderUsers does (based on IDs).
+    users = data;
+    renderUsers();
 });
 
-// Handle user list updates
-socket.on('userList', (users) => {
-    updateUserList(users);
-    log(`User list updated: ${Object.keys(users).length} users connected`);
-});
-
-// Handle playback status updates from server
-socket.on('playbackStatus', (data) => {
-    if (data.status === 'playing') {
-        isPlaying = true;
-        isEndingPlaying = false;
-        isLoopPlaying = false;
-        playbackStartTime = Date.now() - (data.elapsedTime * 1000);
-        endingStartTime = null;
-        loopStartTime = null;
-    } else if (data.status === 'playingEnding') {
-        isPlaying = false;
-        isEndingPlaying = true;
-        isLoopPlaying = false;
-        playbackStartTime = null;
-        endingStartTime = Date.now() - (data.elapsedTime * 1000);
-        loopStartTime = null;
-    } else if (data.status === 'playingLoop') {
-        isPlaying = false;
-        isEndingPlaying = false;
-        isLoopPlaying = true;
-        playbackStartTime = null;
-        endingStartTime = null;
-        loopStartTime = Date.now();
-    } else if (data.status === 'paused') {
-        isPlaying = false;
-        isEndingPlaying = false;
-        isLoopPlaying = false;
+socket.on('userStatusUpdate', (data) => {
+    // data: { socketId, status }
+    if (users[data.socketId]) {
+        users[data.socketId].status = data.status;
+        // Update specific user element if possible, or re-render
+        // Let's find the specific DOM element to update text
+        const userEl = document.querySelector(`.user-item[data-socket-id="${data.socketId}"] .user-status`);
+        if (userEl) {
+            let statusText = 'Online';
+            const s = data.status;
+            if (s.state === 'trigger') statusText = `Playing ${s.file}`;
+            else if (s.state === 'stem') statusText = `Playing Stem (${Math.round(s.time)}s)`;
+            else if (s.state === 'paused') statusText = `Paused/Waiting`;
+            
+            userEl.textContent = statusText;
+            userEl.style.color = s.state === 'trigger' ? 'red' : (s.state === 'stem' ? 'green' : '#666');
+        }
     }
-    
-    // Update paused time if provided
-    if (data.pausedTime !== undefined) {
-        pausedTime = data.pausedTime;
-        console.log(`Admin received paused time: ${pausedTime} seconds`);
-    }
-    
-    updateTimerDisplay();
 });
 
-// Initial log
-log('Admin panel initialized');
+socket.on('audioFilesList', (files) => {
+    audioFiles = files;
+    renderAudioFiles();
+});
 
-// Initial timer display update
-updateTimerDisplay(); 
+// Initial Load
+initGroups();
