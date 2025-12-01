@@ -191,6 +191,26 @@ function renderUsers() {
             container.appendChild(userDiv);
         }
     });
+    
+    // Update group checkbox states
+    for (let i = 1; i <= currentGroupCount; i++) {
+        const groupUsers = Object.values(users).filter(u => u.track == i.toString());
+        const checkbox = document.querySelector(`.group-checkbox[data-group="${i}"]`);
+        
+        if (checkbox) {
+            if (groupUsers.length > 0 && groupUsers.every(u => selectedUsers.has(u.socketId))) {
+                checkbox.checked = true;
+                checkbox.indeterminate = false;
+            } else if (groupUsers.length > 0 && groupUsers.some(u => selectedUsers.has(u.socketId))) {
+                checkbox.checked = false;
+                checkbox.indeterminate = true;
+            } else {
+                checkbox.checked = false;
+                checkbox.indeterminate = false;
+            }
+        }
+    }
+    
     updateButtons();
 }
 
