@@ -25,12 +25,19 @@ let triggeredEnd = false;
 let audioPlaying = false;
 let startTime = null;
 let lastTrack = 6; // Start with 6 so first visitor gets 1
-const TOTAL_TEAMS = 6;
+let TOTAL_TEAMS = 6;
 
 let latestCommand = null; // Store the latest command sent to clients
 let connectedUsers = {}; // Store connected users and their assigned tracks
 let loopMode = false; // Track if we're in loop mode
 let pausedTime = null; // Store the time when audio was paused for loop mode
+let groupTracks = {}; // { "1": "track1.mp3", "2": "track2.mp3", ... }
+let hiddenFiles = new Set(); // Set of filenames that are hidden
+
+// Initialize default tracks
+for(let i=1; i<=6; i++) {
+    groupTracks[i.toString()] = `track${i}.mp3`;
+}
 
 app.use(cors());
 app.use(cookieParser("doubletakelabs-haunted"));
@@ -167,6 +174,7 @@ app.get("/", function (req, res) {
     // Assign a new track if the user doesn't have one
     // Cycle 1 through TOTAL_TEAMS
     lastTrack = lastTrack === TOTAL_TEAMS ? 1 : lastTrack + 1;
+    if (lastTrack > TOTAL_TEAMS) lastTrack = 1; // Safety check if TOTAL_TEAMS reduced
     
     // Set the track in a cookie
     res.cookie("audioTrack", lastTrack.toString(), { 
@@ -233,6 +241,9 @@ io.on("connection", function (socket) {
     socket.emit("userList", connectedUsers);
     socket.emit("playbackStatus", { status: audioPlaying ? 'playing' : 'paused' });
     socket.emit("audioFilesList", getAudioFiles());
+    socket.emit("hiddenFilesUpdate", Array.from(hiddenFiles)); // Send hidden files list
+    socket.emit("groupCountUpdate", { count: TOTAL_TEAMS }); // Send current group count
+    socket.emit("groupTracksUpdate", groupTracks); // Send current track assignments
     updateAdminsWithPlaybackStatus();
   } else {
     socket.join("app");
@@ -243,8 +254,14 @@ io.on("connection", function (socket) {
       id: userID,
       track: track, // This is effectively the Group ID (1-6)
       connectedAt: timestamp.toLocaleString(),
-      socketId: socket.id
+      socketId: socket.id,
+      triggerHistory: []
     };
+    
+    // Send assigned track filename to client immediately
+    if (track !== 'unassigned' && groupTracks[track]) {
+        socket.emit("setTrack", { filename: groupTracks[track] });
+    }
     
     updateAdminsWithUserList();
   }
@@ -253,14 +270,72 @@ io.on("connection", function (socket) {
   if (audioPlaying && startTime && !triggeredEnd) {
     const currentTime = Date.now();
     const elapsedTime = (currentTime - startTime) / 1000;
+    console.log(`Syncing new user to ${elapsedTime}s`);
     socket.emit("playStem", { startAt: elapsedTime });
+  } else if (pausedTime !== null) {
+      // If paused, tell client where to be
+      console.log(`Syncing new user to paused time ${pausedTime}s`);
+      socket.emit("sync", { elapsedTime: pausedTime, isPaused: true });
   }
 
   logEvent(userID, timestamp, { event: "connected" });
 
+  // Handle request for latest command
+  socket.on("getLatestCommand", function() {
+    console.log("Client requested latest command");
+    if (latestCommand) {
+      console.log("Sending latest command to client:", latestCommand.type);
+      if (latestCommand.type === 'playStem' && audioPlaying && startTime) {
+          // Recalculate time for accurate sync
+          const currentTime = Date.now();
+          const elapsedTime = (currentTime - startTime) / 1000;
+          socket.emit('playStem', { startAt: elapsedTime });
+      } else if (latestCommand.type === 'pauseStem') {
+          socket.emit('pauseStem');
+      } else {
+          socket.emit(latestCommand.type, latestCommand.data || {});
+      }
+    } else {
+        // If no latest command, ensure client is paused/reset
+        socket.emit('resetClient');
+    }
+  });
+
   // Admin Commands
   socket.on("getAudioFiles", () => {
     socket.emit("audioFilesList", getAudioFiles());
+    socket.emit("hiddenFilesUpdate", Array.from(hiddenFiles));
+  });
+
+  socket.on("toggleHideAudioFile", (filename) => {
+      if (hiddenFiles.has(filename)) {
+          hiddenFiles.delete(filename);
+      } else {
+          hiddenFiles.add(filename);
+      }
+      io.to("admin").emit("hiddenFilesUpdate", Array.from(hiddenFiles));
+  });
+
+  socket.on("deleteAudioFile", (filename) => {
+      if (!filename) return;
+      const filePath = path.join(__dirname, 'public/audio', filename);
+      
+      // Security check: prevent directory traversal
+      if (path.basename(filePath) !== filename) {
+          console.error("Invalid filename for deletion");
+          return;
+      }
+      
+      try {
+          if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+              console.log(`Deleted file: ${filename}`);
+              // Update lists
+              io.to("admin").emit("audioFilesList", getAudioFiles());
+          }
+      } catch (err) {
+          console.error("Error deleting file:", err);
+      }
   });
 
   socket.on("sortPlayers", () => {
@@ -281,7 +356,10 @@ io.on("connection", function (socket) {
       connectedUsers[user.socketId].track = newGroup.toString(); // Update main store
       
       // Update the user's client
-      io.to(user.socketId).emit("setGroup", { group: newGroup });
+      io.to(user.socketId).emit("setGroup", { 
+          group: newGroup,
+          filename: groupTracks[newGroup.toString()] 
+      });
     });
 
     updateAdminsWithUserList();
@@ -291,12 +369,96 @@ io.on("connection", function (socket) {
     // data: { socketId, group }
     if (connectedUsers[data.socketId]) {
       connectedUsers[data.socketId].track = data.group.toString();
-      io.to(data.socketId).emit("setGroup", { group: data.group });
+      io.to(data.socketId).emit("setGroup", { 
+          group: data.group,
+          filename: groupTracks[data.group.toString()]
+      });
       updateAdminsWithUserList();
     }
   });
+  
+  socket.on("updateGroupTrack", (data) => {
+      // data: { groupId, filename }
+      if (data.groupId && data.filename) {
+          groupTracks[data.groupId] = data.filename;
+          console.log(`Updated Group ${data.groupId} to play ${data.filename}`);
+          
+          // Notify admins
+          io.to("admin").emit("groupTracksUpdate", groupTracks);
+          
+          // Notify clients in that group to switch tracks
+          // Find all users in this group
+          const userIds = Object.keys(connectedUsers);
+          userIds.forEach(id => {
+             if (connectedUsers[id].track === data.groupId.toString()) {
+                 io.to(id).emit("setTrack", { filename: data.filename });
+             } 
+          });
+      }
+  });
 
-  // Play a specific file for specific targets (Interruption)
+  // Load Cue (Pending Trigger)
+  socket.on("loadCue", (data) => {
+      // data: { targets: [socketId...], filename: "x.mp3", isLastClip: boolean }
+      console.log("Loading cue:", data);
+      if (!data.targets || !data.filename) return;
+
+      data.targets.forEach(targetId => {
+          if (connectedUsers[targetId]) {
+              connectedUsers[targetId].cuedTrack = {
+                  filename: data.filename,
+                  isLastClip: data.isLastClip
+              };
+          }
+      });
+      
+      updateAdminsWithUserList();
+  });
+
+  // Trigger All Cues
+  socket.on("triggerAllCues", () => {
+      console.log("Triggering all cues...");
+      let triggeredCount = 0;
+      
+      Object.keys(connectedUsers).forEach(socketId => {
+          const user = connectedUsers[socketId];
+          if (user.cuedTrack) {
+              // Send trigger
+              io.to(socketId).emit("playTrigger", { 
+                  filename: user.cuedTrack.filename,
+                  isLastClip: user.cuedTrack.isLastClip 
+              });
+              
+              // Add to history
+              if (!user.triggerHistory) user.triggerHistory = [];
+              user.triggerHistory.push(user.cuedTrack.filename);
+              
+              // Clear cue
+              delete user.cuedTrack;
+              triggeredCount++;
+          }
+      });
+      
+      if (triggeredCount > 0) {
+          updateAdminsWithUserList();
+      }
+  });
+
+  // Clear Cues
+  socket.on("clearCues", (data) => {
+      // data: { targets: [socketId...] } or if null, clear all? Let's do targets.
+      if (!data || !data.targets) return;
+      
+      data.targets.forEach(targetId => {
+          if (connectedUsers[targetId] && connectedUsers[targetId].cuedTrack) {
+              delete connectedUsers[targetId].cuedTrack;
+          }
+      });
+      
+      updateAdminsWithUserList();
+  });
+
+  // Play a specific file for specific targets (Interruption) - Keeping for backward compat if needed, but Load/Trigger is new way
   socket.on("applyAudio", (data) => {
     // data: { targets: [socketId1, socketId2...], filename: "x.mp3", isLastClip: boolean }
     console.log("Applying audio:", data);
@@ -307,6 +469,12 @@ io.on("connection", function (socket) {
            filename: data.filename,
            isLastClip: data.isLastClip 
        });
+       
+       // Update history for direct apply
+       if (connectedUsers[targetId]) {
+           if (!connectedUsers[targetId].triggerHistory) connectedUsers[targetId].triggerHistory = [];
+           connectedUsers[targetId].triggerHistory.push(data.filename);
+       }
     });
   });
 
@@ -322,19 +490,38 @@ io.on("connection", function (socket) {
   socket.on("playStem", () => {
     console.log("Playing stems");
     audioPlaying = true;
-    startTime = Date.now();
-    io.in("app").emit("playStem", { startAt: 0 });
+    
+    let startOffset = 0;
+    if (pausedTime !== null) {
+        // Resume from pause
+        startOffset = pausedTime;
+        startTime = Date.now() - (pausedTime * 1000);
+        pausedTime = null; // Clear paused state after resuming
+    } else {
+        // Start from beginning
+        startTime = Date.now();
+    }
+    
+    latestCommand = { type: 'playStem', data: { startAt: startOffset } };
+    
+    io.in("app").emit("playStem", { startAt: startOffset });
     updateAdminsWithPlaybackStatus();
   });
 
   socket.on("pauseStem", () => {
     console.log("Pausing stems");
+    
+    // Calculate/Save pause time before clearing startTime
+    if (audioPlaying && startTime) {
+        const currentTime = Date.now();
+        pausedTime = (currentTime - startTime) / 1000;
+    }
+    
     audioPlaying = false;
-    startTime = null; // Or keep track of pause time for resume? The old app reset on pause? 
-    // Spec says "Stem pauses -> Trigger plays -> Stem resumes".
-    // But also "Facilitator can... Pause, Resume".
-    // Standard Pause usually holds position.
-    // For now, let's assume simple pause.
+    startTime = null;
+    
+    latestCommand = { type: 'pauseStem' };
+    
     io.in("app").emit("pauseStem");
     updateAdminsWithPlaybackStatus();
   });
@@ -344,9 +531,20 @@ io.on("connection", function (socket) {
     if (audioPlaying && startTime) {
        const currentTime = Date.now();
        const elapsedTime = (currentTime - startTime) / 1000;
+       
+       // Sync clients
        io.in("app").emit("sync", { elapsedTime: elapsedTime });
+       
+       // Update admin timer live
+       io.to("admin").emit("playbackStatus", {
+        status: 'playing',
+        elapsedTime: elapsedTime,
+        isEndingTrack: triggeredEnd,
+        isLoopMode: loopMode,
+        pausedTime: pausedTime
+      });
     }
-  }, 4000);
+  }, 1000); // Changed from 4000 to 1000 for smoother admin UI updates
   
   socket.on("resumeStem", () => {
      // If we need to resume from a specific time, we need to track pausedTime globally like before.
@@ -377,6 +575,12 @@ io.on("connection", function (socket) {
     // Notify all clients to reset
     io.emit("resetClient");
     
+    // Clear Trigger History for all users
+    Object.values(connectedUsers).forEach(user => {
+        user.triggerHistory = [];
+    });
+    updateAdminsWithUserList();
+    
     updateAdminsWithPlaybackStatus();
   });
 
@@ -392,6 +596,44 @@ io.on("connection", function (socket) {
            status: data 
        });
     }
+  });
+
+  socket.on("updateGroupCount", (data) => {
+      if (data.count && data.count >= 1 && data.count <= 6) {
+          TOTAL_TEAMS = data.count;
+          lastTrack = TOTAL_TEAMS; // Reset round robin
+          console.log(`Group count updated to ${TOTAL_TEAMS}`);
+          
+          // Trigger Full Reset
+          triggeredEnd = false;
+          audioPlaying = false;
+          startTime = null;
+          loopMode = false;
+          pausedTime = null;
+          latestCommand = null;
+          
+          // Re-assign all current users to fit new group count
+          // Just shuffle them all
+          const userIds = Object.keys(connectedUsers);
+          userIds.forEach((socketId, index) => {
+              const newGroup = (index % TOTAL_TEAMS) + 1;
+              connectedUsers[socketId].track = newGroup.toString();
+              io.to(socketId).emit("setGroup", { 
+                  group: newGroup,
+                  filename: groupTracks[newGroup.toString()] 
+              });
+          });
+          
+          // Notify admin of new count
+          io.to("admin").emit("groupCountUpdate", { count: TOTAL_TEAMS });
+          
+          // Notify everyone to reset/refresh
+          io.emit("resetClient"); // Stop audio
+          io.emit("forceRefresh"); // Reload page to ensure clean state and new audio files loaded
+          
+          updateAdminsWithUserList();
+          updateAdminsWithPlaybackStatus();
+      }
   });
 
   socket.on("disconnect", function () {

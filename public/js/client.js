@@ -34,10 +34,12 @@ let triggerPlaying = false;
 let currentTriggerFile = '';
 let triggerStartTime = 0; // To calculate how much time to skip
 let isLastClip = false;
+let pendingSyncTime = -1; // Store server time to apply on unlock
 
 // Audio Elements
 const mainAudio = new Audio(); // The Stem
 mainAudio.loop = false; 
+mainAudio.preload = 'auto'; // Ensure we try to load metadata
 // We preload main stem based on track
 mainAudio.src = `/audio/track${audioTrack}.mp3`;
 
@@ -62,16 +64,64 @@ startButton.addEventListener('click', () => {
     loadingContainer.style.display = 'none';
     
     // unlock audio
+    // Explicitly load to ensure mobile browsers are ready
+    mainAudio.load();
+    
     mainAudio.play().then(() => {
         mainAudio.pause();
-        mainAudio.currentTime = 0;
+        
+        // Apply pending sync time if we have one
+        if (pendingSyncTime >= 0) {
+            console.log("Applying pending sync time on unlock:", pendingSyncTime);
+            
+            const applyTime = () => {
+                mainAudio.currentTime = pendingSyncTime;
+                console.log("Applied time:", mainAudio.currentTime);
+            };
+
+            if (mainAudio.readyState >= 1) {
+                applyTime();
+            } else {
+                // Wait for metadata if not ready
+                mainAudio.addEventListener('loadedmetadata', () => {
+                    console.log("Metadata loaded, applying time");
+                    applyTime();
+                }, { once: true });
+            }
+            
+            // Safari fallback: sometimes it needs a retry after a tick
+            setTimeout(applyTime, 50);
+            setTimeout(applyTime, 200);
+        }
+        
     }).catch(e => console.log("Audio unlock failed", e));
     
     triggerAudio.play().then(() => {
         triggerAudio.pause();
     }).catch(e => console.log("Trigger unlock failed", e));
 
+    // Request Wake Lock to keep screen on
+    if ('wakeLock' in navigator) {
+        navigator.wakeLock.request('screen')
+        .then(lock => {
+            console.log('Wake Lock active');
+            // Re-acquire lock if visibility changes (e.g. tab switch)
+            document.addEventListener('visibilitychange', async () => {
+                if (document.visibilityState === 'visible') {
+                    await navigator.wakeLock.request('screen');
+                }
+            });
+        })
+        .catch(err => console.error('Wake Lock failed:', err));
+    }
+
     socket.emit('getLatestCommand'); // In case we joined late
+    
+    // If stem was already playing (received event before click), start it now
+    if (stemPlaying && !triggerPlaying) {
+        mainAudio.play().catch(e => console.error("Resume stem after unlock", e));
+    }
+    
     updateStatus();
 });
 
@@ -108,7 +158,10 @@ function updateStatus() {
     } else if (stemPlaying && !mainAudio.paused) {
         text += ` | Playing Stem`;
         statusObj.state = 'stem';
-        statusObj.file = `track${audioTrack}.mp3`;
+        // Extract filename from src URL
+        const srcParts = mainAudio.src.split('/');
+        const fileName = srcParts[srcParts.length - 1];
+        statusObj.file = decodeURIComponent(fileName);
         statusObj.time = mainAudio.currentTime;
         statusObj.duration = mainAudio.duration;
     } else {
@@ -145,18 +198,46 @@ socket.on('setGroup', (data) => {
     // Update Cookie for persistence on refresh
     setCookie('audioTrack', audioTrack, 7);
 
-    // Reload main audio source
-    const wasPlaying = !mainAudio.paused;
-    const currentTime = mainAudio.currentTime;
-    
-    mainAudio.src = `/audio/track${audioTrack}.mp3`;
-    mainAudio.currentTime = currentTime; 
-    
-    if (wasPlaying) {
-        mainAudio.play().catch(e => console.error(e));
+    // Use provided filename or fallback
+    const newSrc = data.filename ? `/audio/${data.filename}` : `/audio/track${audioTrack}.mp3`;
+
+    // Reload main audio source if changed
+    if (mainAudio.src !== location.origin + newSrc) {
+        const wasPlaying = !mainAudio.paused;
+        const currentTime = mainAudio.currentTime;
+        
+        mainAudio.src = newSrc;
+        mainAudio.currentTime = currentTime; 
+        
+        if (wasPlaying) {
+            mainAudio.play().catch(e => console.error(e));
+        }
     }
     
     updateStatus();
+});
+
+// 1b. Set Track (Update main track file without changing group)
+socket.on('setTrack', (data) => {
+    console.log("Track updated to", data.filename);
+    if (!data.filename) return;
+    
+    const newSrc = `/audio/${data.filename}`;
+    
+    // Check if actually changed
+    // mainAudio.src is absolute url, so check endsWith or construct absolute
+    if (!mainAudio.src.endsWith(newSrc)) {
+        const wasPlaying = !mainAudio.paused;
+        const currentTime = mainAudio.currentTime;
+        
+        mainAudio.src = newSrc;
+        mainAudio.currentTime = currentTime;
+        
+        if (wasPlaying) {
+             mainAudio.play().catch(e => console.error(e));
+        }
+        updateStatus();
+    }
 });
 
 // 2. Play Stem (Global Start)
@@ -167,13 +248,20 @@ socket.on('playStem', (data) => {
     // Always sync time first
     if (data.startAt !== undefined) {
          mainAudio.currentTime = data.startAt;
+         pendingSyncTime = data.startAt; // Backup for unlock
     }
     
     if (triggerPlaying) {
         // If interrupted, just reset the anchor time so when we resume we add the delta from NOW.
         triggerStartTime = Date.now();
     } else {
-        mainAudio.play().catch(e => console.error("Play stem failed", e));
+        // If user has interacted, play immediately.
+        // If not (just joined), we can't autoplay yet.
+        if (userInteracted) {
+            mainAudio.play().catch(e => console.error("Play stem failed", e));
+        } else {
+            console.log("Waiting for user interaction to play stem at", data.startAt);
+        }
     }
     updateStatus();
 });
@@ -210,7 +298,13 @@ socket.on('playTrigger', (data) => {
         triggerStartTime = Date.now();
     }
     
-    triggerAudio.play().catch(e => console.error("Play trigger failed", e));
+    triggerAudio.load(); // Ensure new source is loaded
+    triggerAudio.play()
+        .catch(e => {
+            console.error("Play trigger failed", e);
+            audioStatus.textContent = "Error playing trigger: " + e.message;
+        });
+    
     updateStatus();
 });
 
@@ -248,6 +342,14 @@ socket.on('resetClient', () => {
 
 // 7. Periodic Sync
 socket.on('sync', (data) => {
+    // Initial sync for paused state
+    if (data.isPaused) {
+        console.log("Received initial paused sync:", data.elapsedTime);
+        mainAudio.currentTime = data.elapsedTime;
+        pendingSyncTime = data.elapsedTime; // Backup for unlock
+        return;
+    }
+
     // If we are supposed to be playing the stem (and not interrupted by trigger)
     if (stemPlaying && !triggerPlaying) {
         const drift = Math.abs(mainAudio.currentTime - data.elapsedTime);
@@ -276,6 +378,12 @@ socket.on('sync', (data) => {
         mainAudio.currentTime = data.elapsedTime;
         triggerStartTime = Date.now(); // Reset our local delta tracking since we just synced to absolute
     }
+});
+
+// 8. Force Refresh
+socket.on('forceRefresh', () => {
+    console.log("Force refresh received");
+    window.location.reload();
 });
 
 // Initial Status

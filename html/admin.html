@@ -169,14 +169,31 @@
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container" style="margin-top: 50px;">
+        <!-- Header Bar -->
+        <div style="position: absolute; top: 0; left: 0; right: 0; height: 50px; background: #333; color: white; display: flex; align-items: center; padding: 0 20px; z-index: 100;">
+            <h1 style="margin: 0; font-size: 1.2rem; border: none;">Last Human Admin</h1>
+            <div style="margin-left: auto; font-family: monospace; font-size: 1.2rem;">
+                SYNC TIME: <span id="globalTimer">00:00</span>
+            </div>
+        </div>
+
         <!-- Left Column: Users & Groups -->
         <div class="column col-left">
-            <h2>Groups</h2>
+            <h2>BACKGROUND TRACK GROUPS</h2>
             <div id="groupsContainer">
                 <!-- Groups 1-6 will be generated here -->
             </div>
             
+            <div style="margin-bottom: 15px; padding-bottom: 15px; border-bottom: 1px solid #ccc;">
+                <label style="font-weight: bold; display: block; margin-bottom: 5px;">Number of Groups:</label>
+                <input type="range" id="groupCountSlider" min="1" max="6" value="6" style="width: 100%;">
+                <div style="text-align: center; font-weight: bold;">
+                    <span id="groupCountLabel">6</span> Groups
+                </div>
+                <button id="applyGroupCountBtn" style="margin-top: 5px; font-size: 0.8rem; padding: 5px;">Apply Group Count (Resets Experience)</button>
+            </div>
+
             <div id="selectAllWrapper">
                 <label style="display: flex; align-items: center; font-weight: bold; font-size: 1.1rem;">
                     <input type="checkbox" class="checkbox" id="selectAllBtn"> Select All Players
@@ -189,8 +206,8 @@
             <h2>Controls</h2>
             
             <div style="width: 100%; margin-bottom: 20px; border-bottom: 2px solid #ccc; padding-bottom: 20px;">
-                <button id="playStemBtn" style="background: #d4edda; margin-bottom: 10px;">START STEMS</button>
-                <button id="pauseStemBtn" style="background: #fff3cd;">PAUSE STEMS</button>
+                <button id="playStemBtn" style="background: #d4edda; margin-bottom: 10px;">START MAIN TRACKS</button>
+                <button id="pauseStemBtn" style="background: #fff3cd;">PAUSE MAIN TRACKS</button>
             </div>
 
             <button id="sortPlayersBtn">Sort Players</button>
@@ -198,15 +215,24 @@
             
             <div style="height: 20px;"></div>
             
-            <button id="applyAudioBtn" disabled>APPLY AUDIO</button>
-            <button id="stopAudioBtn" disabled style="background: #f8d7da;">STOP AUDIO</button>
-
-            <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #ccc;">
-                <label style="display: flex; align-items: center; cursor: pointer;">
-                    <input type="checkbox" id="isLastClip" class="checkbox">
-                    <strong>Last Clip (Do not resume stem)</strong>
-                </label>
+            <div style="border: 2px solid #000; padding: 10px; background: #f8f9fa;">
+                <h3 style="margin-top: 0; text-align: center;">CUE CONTROL</h3>
+                <button id="loadCueBtn" disabled style="background: #ffc107; margin-bottom: 5px;">LOAD CUE</button>
+                <button id="triggerCuesBtn" disabled style="background: #dc3545; color: white; font-size: 1.1rem; padding: 20px;">TRIGGER ALL CUES</button>
+                
+                <div style="display: flex; gap: 10px; margin-top: 5px;">
+                    <button id="stopAudioBtn" disabled style="background: #f8d7da; flex: 1;">STOP TRIGGERED CUE</button>
+                    <button id="clearCuesBtn" disabled style="background: #e2e6ea; flex: 1;">Clear Pending Cues</button>
+                </div>
+                <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #ccc;">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox" id="isLastClip" class="checkbox">
+                        <strong>Last Clip (Do not resume main track)</strong>
+                    </label>
+                </div>
             </div>
+
+            
         </div>
 
         <!-- Right Column: Audio Files -->
@@ -215,6 +241,17 @@
             <div id="audioList">
                 <!-- Audio files will be generated here -->
             </div>
+            
+            <div id="hiddenFilesContainer" style="margin-top: 20px; border-top: 2px dashed #ccc; padding-top: 10px; display: none;">
+                <h3 style="font-size: 1rem; color: #666; cursor: pointer; display: flex; align-items: center;" onclick="toggleHiddenList()">
+                    <span id="hiddenListArrow" style="margin-right: 5px; display: inline-block; transform: rotate(-90deg); transition: transform 0.2s;">▼</span>
+                    Hidden Tracks (<span id="hiddenCount">0</span>)
+                </h3>
+                <div id="hiddenAudioList" style="opacity: 0.6; display: none; padding-left: 10px;">
+                    <!-- Hidden files -->
+                </div>
+            </div>
+
             <div style="margin-top: auto; padding-top: 10px; border-top: 1px solid #ccc;">
                 <h3>Upload</h3>
                 <form action="/upload" method="post" enctype="multipart/form-data">
