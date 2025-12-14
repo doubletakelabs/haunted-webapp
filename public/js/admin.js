@@ -9,6 +9,8 @@ let hiddenFiles = new Set();
 let groupTracks = {}; // { groupId: filename }
 let selectedUsers = new Set(); // Set of socketIds
 let selectedAudio = null; // Filename
+let previewAudio = new Audio(); // Audio element for local playback
+let currentlyPlayingPreview = null; // Filename of currently playing preview
 
 // DOM Elements
 const groupsContainer = document.getElementById('groupsContainer');
@@ -252,10 +254,18 @@ function renderAudioFiles() {
         const eyeIcon = isHidden ? '👁️' : '👁️‍🗨️'; // Simple text icons for now, can use proper icons if available
         const eyeTitle = isHidden ? 'Unhide' : 'Hide';
 
+        const isPlaying = currentlyPlayingPreview === file;
+        const playButtonText = isPlaying ? '⏸' : '▶';
+        const playButtonTitle = isPlaying ? 'Pause' : 'Play';
+        
         div.innerHTML = `
             <div style="display: flex; align-items: center; width: 100%;">
                 <input type="checkbox" class="checkbox" ${selectedAudio === file ? 'checked' : ''}>
                 <span style="flex-grow: 1; overflow: hidden; text-overflow: ellipsis;">${file}</span>
+                
+                <button onclick="event.stopPropagation(); togglePreviewAudio('${file}')" title="${playButtonTitle}" style="width: auto; padding: 2px 8px; font-size: 0.8rem; background: ${isPlaying ? '#4CAF50' : '#2196F3'}; color: white; border: none; border-radius: 3px; margin-left: 5px; cursor: pointer;">
+                    ${playButtonText}
+                </button>
                 
                 <button onclick="event.stopPropagation(); toggleHideAudio('${file}')" title="${eyeTitle}" style="width: auto; padding: 2px 5px; font-size: 0.8rem; background: #ddd; border: 1px solid #999; border-radius: 3px; margin-left: 5px; cursor: pointer;">
                     ${isHidden ? 'Show' : 'Hide'}
@@ -295,6 +305,41 @@ window.deleteAudio = function(filename) {
     }
 }
 
+window.togglePreviewAudio = function(filename) {
+    // If clicking the same file that's playing, pause it
+    if (currentlyPlayingPreview === filename && !previewAudio.paused) {
+        previewAudio.pause();
+        currentlyPlayingPreview = null;
+        renderAudioFiles(); // Update UI
+        return;
+    }
+    
+    // Stop any currently playing preview
+    if (currentlyPlayingPreview) {
+        previewAudio.pause();
+        previewAudio.currentTime = 0;
+    }
+    
+    // Play the selected file
+    currentlyPlayingPreview = filename;
+    previewAudio.src = `/audio/${filename}`;
+    previewAudio.play()
+        .then(() => {
+            renderAudioFiles(); // Update UI to show playing state
+        })
+        .catch(err => {
+            console.error('Failed to play preview:', err);
+            currentlyPlayingPreview = null;
+            renderAudioFiles();
+        });
+    
+    // When audio ends, clear the playing state
+    previewAudio.onended = () => {
+        currentlyPlayingPreview = null;
+        renderAudioFiles();
+    };
+}
+
 // Selection Logic
 function toggleUserSelection(socketId) {
     if (selectedUsers.has(socketId)) {
@@ -330,6 +375,16 @@ function selectAudio(filename) {
     }
     renderAudioFiles();
     updateButtons();
+}
+
+// Stop preview audio when needed
+function stopPreviewAudio() {
+    if (currentlyPlayingPreview) {
+        previewAudio.pause();
+        previewAudio.currentTime = 0;
+        currentlyPlayingPreview = null;
+        renderAudioFiles();
+    }
 }
 
 function checkSelectAllState() {
