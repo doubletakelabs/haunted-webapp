@@ -12,6 +12,8 @@ io = require("socket.io")(server, {
     res.writeHead(200, headers);
     res.end();
   },
+  pingTimeout: 60000, // 60 seconds - longer timeout for mobile devices
+  pingInterval: 25000, // 25 seconds - send ping every 25 seconds
 });
 const cookieParser = require("cookie-parser");
 const multer = require("multer");
@@ -279,6 +281,11 @@ io.on("connection", function (socket) {
   }
 
   logEvent(userID, timestamp, { event: "connected" });
+
+  // Handle keepalive ping from client
+  socket.on("ping", () => {
+    socket.emit("pong");
+  });
 
   // Handle request for latest command
   socket.on("getLatestCommand", function() {

@@ -1,5 +1,11 @@
-// Connect to socket.io
-const socket = io();
+// Connect to socket.io with keepalive configuration
+const socket = io({
+  reconnection: true,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  reconnectionAttempts: Infinity,
+  timeout: 20000,
+});
 
 // Cookie functions
 function getCookie(name) {
@@ -35,6 +41,7 @@ let currentTriggerFile = '';
 let triggerStartTime = 0; // To calculate how much time to skip
 let isLastClip = false;
 let pendingSyncTime = -1; // Store server time to apply on unlock
+let wakeLock = null; // Wake lock reference
 
 // Audio Elements
 const mainAudio = new Audio(); // The Stem
@@ -54,12 +61,130 @@ triggerAudio.onended = () => {
     updateStatus();
 };
 
+// Silent audio to prevent device sleep
+const silentAudio = new Audio('/audio/silence.mp3');
+silentAudio.loop = true;
+silentAudio.volume = 0.01; // Very quiet
+
+function startSilentAudio() {
+    try {
+        // If already playing, don't restart
+        if (!silentAudio.paused) {
+            return;
+        }
+        
+        // Start playing the silent audio file
+        silentAudio.play()
+            .then(() => {
+                console.log('Silent audio started to prevent sleep');
+            })
+            .catch(err => {
+                console.error('Failed to start silent audio:', err);
+                // Retry after a short delay
+                setTimeout(() => {
+                    silentAudio.play().catch(e => console.error('Retry failed:', e));
+                }, 500);
+            });
+    } catch (e) {
+        console.error('Failed to start silent audio:', e);
+    }
+}
+
 // Report track to server
 socket.emit('reportTrack', { track: audioTrack });
 
+// Socket.io connection and reconnection handling
+socket.on('connect', () => {
+    console.log('Socket connected');
+    // Send periodic keepalive ping to prevent timeout
+    if (userInteracted) {
+        socket.emit('ping');
+    }
+});
+
+socket.on('disconnect', (reason) => {
+    console.log('Socket disconnected:', reason);
+});
+
+socket.on('reconnect', (attemptNumber) => {
+    console.log('Socket reconnected after', attemptNumber, 'attempts');
+    // Re-report track to server
+    socket.emit('reportTrack', { track: audioTrack });
+    // Get latest command to sync state
+    socket.emit('getLatestCommand');
+    // Re-request wake lock if user had previously interacted
+    if (userInteracted && 'wakeLock' in navigator) {
+        navigator.wakeLock.request('screen')
+            .then(lock => {
+                wakeLock = lock;
+                console.log('Wake Lock re-acquired after reconnect');
+            })
+            .catch(err => console.error('Wake Lock re-acquisition failed:', err));
+    }
+    // Restart silent audio
+    if (userInteracted) {
+        startSilentAudio();
+    }
+});
+
+// Send periodic keepalive pings to prevent timeout
+setInterval(() => {
+    if (socket.connected && userInteracted) {
+        socket.emit('ping');
+    }
+}, 20000); // Every 20 seconds
+
+// Monitor and maintain silent audio to prevent device sleep
+setInterval(() => {
+    if (userInteracted) {
+        // Check if silent audio is paused and restart it
+        if (silentAudio.paused) {
+            console.log('Silent audio paused, restarting...');
+            startSilentAudio();
+        }
+    }
+}, 5000); // Check every 5 seconds
+
 // Interaction Handler
 startButton.addEventListener('click', () => {
+    // Request Wake Lock immediately to prevent device sleep
+    if ('wakeLock' in navigator) {
+        navigator.wakeLock.request('screen')
+        .then(lock => {
+            wakeLock = lock;
+            console.log('Wake Lock active');
+            // Re-acquire lock if visibility changes (e.g. tab switch)
+            document.addEventListener('visibilitychange', async () => {
+                if (document.visibilityState === 'visible') {
+                    // Re-acquire wake lock if needed
+                    if (wakeLock === null) {
+                        try {
+                            wakeLock = await navigator.wakeLock.request('screen');
+                            console.log('Wake Lock re-acquired on visibility change');
+                        } catch (err) {
+                            console.error('Wake Lock re-acquisition failed:', err);
+                        }
+                    }
+                    // Resume silent audio if paused
+                    if (silentAudio.paused) {
+                        startSilentAudio();
+                    }
+                }
+            });
+        })
+        .catch(err => console.error('Wake Lock failed:', err));
+    }
+    
     userInteracted = true;
+    
+    // Start playing silent audio to prevent device sleep
+    // Do this synchronously to ensure it starts before device can sleep
+    startSilentAudio();
+    
+    // Also send immediate ping to keep connection alive
+    if (socket.connected) {
+        socket.emit('ping');
+    }
     contentContainer.style.display = 'none';
     loadingContainer.style.display = 'none';
     
@@ -99,21 +224,6 @@ startButton.addEventListener('click', () => {
     triggerAudio.play().then(() => {
         triggerAudio.pause();
     }).catch(e => console.log("Trigger unlock failed", e));
-
-    // Request Wake Lock to keep screen on
-    if ('wakeLock' in navigator) {
-        navigator.wakeLock.request('screen')
-        .then(lock => {
-            console.log('Wake Lock active');
-            // Re-acquire lock if visibility changes (e.g. tab switch)
-            document.addEventListener('visibilitychange', async () => {
-                if (document.visibilityState === 'visible') {
-                    await navigator.wakeLock.request('screen');
-                }
-            });
-        })
-        .catch(err => console.error('Wake Lock failed:', err));
-    }
 
     socket.emit('getLatestCommand'); // In case we joined late
     

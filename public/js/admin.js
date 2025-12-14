@@ -146,7 +146,16 @@ function renderUsers() {
             if (user.status) {
                 const s = user.status;
                 if (s.state === 'trigger') {
-                    statusText = `Playing ${s.file}`;
+                    const minutes = Math.floor(s.time / 60);
+                    const seconds = Math.floor(s.time % 60);
+                    const timeFormatted = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                    let durationFormatted = '';
+                    if (s.duration && !isNaN(s.duration) && s.duration > 0) {
+                        const durMinutes = Math.floor(s.duration / 60);
+                        const durSeconds = Math.floor(s.duration % 60);
+                        durationFormatted = ` / ${durMinutes.toString().padStart(2, '0')}:${durSeconds.toString().padStart(2, '0')}`;
+                    }
+                    statusText = `Playing ${s.file} (${timeFormatted}${durationFormatted})`;
                     statusColor = 'red';
                     backgroundColor = '#ffffe0'; // Light yellow for playing trigger
                 } else if (s.state === 'stem') {
@@ -154,7 +163,13 @@ function renderUsers() {
                     const minutes = Math.floor(s.time / 60);
                     const seconds = Math.floor(s.time % 60);
                     const timeFormatted = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-                    statusText = `Playing ${s.file} (${timeFormatted})`;
+                    let durationFormatted = '';
+                    if (s.duration && !isNaN(s.duration) && s.duration > 0) {
+                        const durMinutes = Math.floor(s.duration / 60);
+                        const durSeconds = Math.floor(s.duration % 60);
+                        durationFormatted = ` / ${durMinutes.toString().padStart(2, '0')}:${durSeconds.toString().padStart(2, '0')}`;
+                    }
+                    statusText = `Playing ${s.file} (${timeFormatted}${durationFormatted})`;
                     statusColor = 'green';
                 } else if (s.state === 'paused') {
                     statusText = `Paused/Waiting`;
@@ -473,14 +488,29 @@ socket.on('userStatusUpdate', (data) => {
             let backgroundColor = '';
 
             if (s.state === 'trigger') {
-                statusText = `Playing ${s.file}`;
+                const minutes = Math.floor(s.time / 60);
+                const seconds = Math.floor(s.time % 60);
+                const timeFormatted = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+                let durationFormatted = '';
+                if (s.duration && !isNaN(s.duration) && s.duration > 0) {
+                    const durMinutes = Math.floor(s.duration / 60);
+                    const durSeconds = Math.floor(s.duration % 60);
+                    durationFormatted = ` / ${durMinutes.toString().padStart(2, '0')}:${durSeconds.toString().padStart(2, '0')}`;
+                }
+                statusText = `Playing ${s.file} (${timeFormatted}${durationFormatted})`;
                 userEl.style.color = 'red';
                 backgroundColor = '#ffffe0'; // Light yellow
             } else if (s.state === 'stem') {
                 const minutes = Math.floor(s.time / 60);
                 const seconds = Math.floor(s.time % 60);
                 const timeFormatted = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-                statusText = `Playing ${s.file} (${timeFormatted})`;
+                let durationFormatted = '';
+                if (s.duration && !isNaN(s.duration) && s.duration > 0) {
+                    const durMinutes = Math.floor(s.duration / 60);
+                    const durSeconds = Math.floor(s.duration % 60);
+                    durationFormatted = ` / ${durMinutes.toString().padStart(2, '0')}:${durSeconds.toString().padStart(2, '0')}`;
+                }
+                statusText = `Playing ${s.file} (${timeFormatted}${durationFormatted})`;
                 userEl.style.color = 'green';
             } else if (s.state === 'paused') {
                 statusText = `Paused/Waiting`;
