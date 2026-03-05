@@ -35,6 +35,7 @@ let loopMode = false; // Track if we're in loop mode
 let pausedTime = null; // Store the time when audio was paused for loop mode
 let groupTracks = {}; // { "1": "track1.mp3", "2": "track2.mp3", ... }
 let hiddenFiles = new Set(); // Set of filenames that are hidden
+let backgroundTrack = null; // Filename for background track (plays when main tracks paused)
 
 // Initialize default tracks
 for(let i=1; i<=6; i++) {
@@ -246,6 +247,7 @@ io.on("connection", function (socket) {
     socket.emit("hiddenFilesUpdate", Array.from(hiddenFiles)); // Send hidden files list
     socket.emit("groupCountUpdate", { count: TOTAL_TEAMS }); // Send current group count
     socket.emit("groupTracksUpdate", groupTracks); // Send current track assignments
+    socket.emit("backgroundTrackUpdate", { filename: backgroundTrack }); // Send current background track
     updateAdminsWithPlaybackStatus();
   } else {
     socket.join("app");
@@ -404,6 +406,19 @@ io.on("connection", function (socket) {
       }
   });
 
+  // Set Background Track
+  socket.on("setBackgroundTrack", (data) => {
+      // data: { filename } or { filename: null } to clear
+      backgroundTrack = data.filename || null;
+      console.log(`Background track set to: ${backgroundTrack || 'none'}`);
+      
+      // Notify all admins
+      io.to("admin").emit("backgroundTrackUpdate", { filename: backgroundTrack });
+      
+      // Notify all clients of the new background track
+      io.in("app").emit("setBackgroundTrack", { filename: backgroundTrack });
+  });
+
   // Load Cue (Pending Trigger)
   socket.on("loadCue", (data) => {
       // data: { targets: [socketId...], filename: "x.mp3", isLastClip: boolean }
@@ -430,7 +445,7 @@ io.on("connection", function (socket) {
       Object.keys(connectedUsers).forEach(socketId => {
           const user = connectedUsers[socketId];
           if (user.cuedTrack) {
-              // Send trigger
+              // Send trigger (client handles stopping background track locally)
               io.to(socketId).emit("playTrigger", { 
                   filename: user.cuedTrack.filename,
                   isLastClip: user.cuedTrack.isLastClip 
@@ -498,6 +513,9 @@ io.on("connection", function (socket) {
     console.log("Playing stems");
     audioPlaying = true;
     
+    // Stop background track if playing
+    io.in("app").emit("stopBackgroundTrack");
+    
     let startOffset = 0;
     if (pausedTime !== null) {
         // Resume from pause
@@ -530,6 +548,12 @@ io.on("connection", function (socket) {
     latestCommand = { type: 'pauseStem' };
     
     io.in("app").emit("pauseStem");
+    
+    // Start background track if one is set
+    if (backgroundTrack) {
+        io.in("app").emit("playBackgroundTrack", { filename: backgroundTrack });
+    }
+    
     updateAdminsWithPlaybackStatus();
   });
   
@@ -578,6 +602,9 @@ io.on("connection", function (socket) {
     loopMode = false;
     pausedTime = null;
     latestCommand = null;
+    
+    // Stop background track on reset
+    io.in("app").emit("stopBackgroundTrack");
     
     // Notify all clients to reset
     io.emit("resetClient");

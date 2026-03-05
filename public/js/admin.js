@@ -11,6 +11,7 @@ let selectedUsers = new Set(); // Set of socketIds
 let selectedAudio = null; // Filename
 let previewAudio = new Audio(); // Audio element for local playback
 let currentlyPlayingPreview = null; // Filename of currently playing preview
+let backgroundTrack = null; // Current background track filename
 
 // DOM Elements
 const groupsContainer = document.getElementById('groupsContainer');
@@ -31,6 +32,7 @@ const globalTimer = document.getElementById('globalTimer');
 const groupCountSlider = document.getElementById('groupCountSlider');
 const groupCountLabel = document.getElementById('groupCountLabel');
 const applyGroupCountBtn = document.getElementById('applyGroupCountBtn');
+const backgroundTrackSelect = document.getElementById('backgroundTrackSelect');
 
 let currentGroupCount = 6;
 
@@ -230,6 +232,33 @@ function renderUsers() {
     
     updateButtons();
 }
+
+// Update Background Track Dropdown
+function updateBackgroundTrackDropdown() {
+    const currentValue = backgroundTrackSelect.value;
+    backgroundTrackSelect.innerHTML = '<option value="">(None - Silent when paused)</option>';
+    
+    audioFiles.forEach(file => {
+        const option = document.createElement('option');
+        option.value = file;
+        option.textContent = file;
+        if (backgroundTrack === file) {
+            option.selected = true;
+        }
+        backgroundTrackSelect.appendChild(option);
+    });
+    
+    // Restore selection if it still exists
+    if (currentValue && audioFiles.includes(currentValue)) {
+        backgroundTrackSelect.value = currentValue;
+    }
+}
+
+// Background Track Selection Handler
+backgroundTrackSelect.onchange = function() {
+    const filename = this.value || null;
+    socket.emit('setBackgroundTrack', { filename: filename });
+};
 
 // Render Audio Files
 function renderAudioFiles() {
@@ -587,6 +616,7 @@ socket.on('userStatusUpdate', (data) => {
 socket.on('audioFilesList', (files) => {
     audioFiles = files;
     renderAudioFiles();
+    updateBackgroundTrackDropdown();
 });
 
 socket.on('hiddenFilesUpdate', (files) => {
@@ -606,6 +636,11 @@ socket.on('groupTracksUpdate', (data) => {
     groupTracks = data;
     initGroups(); // Re-render groups to update dropdowns
     renderUsers();
+});
+
+socket.on('backgroundTrackUpdate', (data) => {
+    backgroundTrack = data.filename;
+    backgroundTrackSelect.value = backgroundTrack || '';
 });
 
 // Initial Load

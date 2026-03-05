@@ -66,6 +66,11 @@ const silentAudio = new Audio('/audio/silence.mp3');
 silentAudio.loop = true;
 silentAudio.volume = 0.01; // Very quiet
 
+// Background Track Audio (plays when main tracks are paused)
+const backgroundAudio = new Audio();
+backgroundAudio.loop = true;
+let backgroundTrackFile = null; // Current background track filename
+
 function startSilentAudio() {
     try {
         // If already playing, don't restart
@@ -224,6 +229,15 @@ startButton.addEventListener('click', () => {
     triggerAudio.play().then(() => {
         triggerAudio.pause();
     }).catch(e => console.log("Trigger unlock failed", e));
+    
+    // Unlock background audio
+    if (backgroundTrackFile) {
+        backgroundAudio.src = `/audio/${backgroundTrackFile}`;
+    }
+    backgroundAudio.play().then(() => {
+        backgroundAudio.pause();
+        backgroundAudio.currentTime = 0;
+    }).catch(e => console.log("Background audio unlock failed", e));
 
     socket.emit('getLatestCommand'); // In case we joined late
     
@@ -355,6 +369,12 @@ socket.on('playStem', (data) => {
     console.log("Play Stem", data);
     stemPlaying = true;
     
+    // Stop background track when main tracks start
+    if (!backgroundAudio.paused) {
+        backgroundAudio.pause();
+        backgroundAudio.currentTime = 0;
+    }
+    
     // Always sync time first
     if (data.startAt !== undefined) {
          mainAudio.currentTime = data.startAt;
@@ -388,6 +408,12 @@ socket.on('pauseStem', () => {
 socket.on('playTrigger', (data) => {
     console.log("Play Trigger", data.filename, "Last Clip:", data.isLastClip);
     if (!userInteracted) return;
+
+    // Stop background track if playing
+    if (!backgroundAudio.paused) {
+        backgroundAudio.pause();
+        backgroundAudio.currentTime = 0;
+    }
 
     // Pause stem if playing
     if (!mainAudio.paused) {
@@ -444,6 +470,8 @@ socket.on('resetClient', () => {
     mainAudio.currentTime = 0;
     triggerAudio.pause();
     triggerAudio.currentTime = 0;
+    backgroundAudio.pause();
+    backgroundAudio.currentTime = 0;
     currentTriggerFile = '';
     triggerStartTime = 0;
     isLastClip = false;
@@ -494,6 +522,33 @@ socket.on('sync', (data) => {
 socket.on('forceRefresh', () => {
     console.log("Force refresh received");
     window.location.reload();
+});
+
+// 9. Set Background Track (admin sets which track to use)
+socket.on('setBackgroundTrack', (data) => {
+    console.log("Background track set to:", data.filename);
+    backgroundTrackFile = data.filename;
+    if (backgroundTrackFile) {
+        backgroundAudio.src = `/audio/${backgroundTrackFile}`;
+    }
+});
+
+// 10. Play Background Track (when main tracks pause)
+socket.on('playBackgroundTrack', (data) => {
+    console.log("Play background track:", data.filename);
+    if (!userInteracted || !data.filename) return;
+    
+    backgroundTrackFile = data.filename;
+    backgroundAudio.src = `/audio/${data.filename}`;
+    backgroundAudio.currentTime = 0;
+    backgroundAudio.play().catch(e => console.error("Background play failed:", e));
+});
+
+// 11. Stop Background Track (when main tracks start or cues trigger)
+socket.on('stopBackgroundTrack', () => {
+    console.log("Stop background track");
+    backgroundAudio.pause();
+    backgroundAudio.currentTime = 0;
 });
 
 // Initial Status
